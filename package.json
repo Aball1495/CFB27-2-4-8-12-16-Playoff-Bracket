@@ -7,7 +7,7 @@
   "main": "main.cjs",
   "scripts": {
     "start": "electron .",
-    "package:win": "npx @electron/packager . \"CFB27 Playoff Editor\" --platform=win32 --arch=x64 --out=dist --overwrite --asar=false --ignore=\"^/dist\" --ignore=\"^/diagnostic-tools\" --ignore=\"test-config-names.json\" --ignore=\"example-config-12team.json\" --ignore=\"PACKAGING.md\" --ignore=\"TECHNICAL_NOTES.md\" --ignore=\"SESSION_FINDINGS.md\" --ignore=\"package-log.txt\""
+    "package:win": "npx @electron/packager . \"CFB27 Playoff Editor\" --platform=win32 --arch=x64 --out=dist --overwrite --asar=false --icon=\"icon-detailed.ico\" --ignore=\"^/dist\" --ignore=\"^/diagnostic-tools\" --ignore=\"test-config-names.json\" --ignore=\"example-config-12team.json\" --ignore=\"PACKAGING.md\" --ignore=\"TECHNICAL_NOTES.md\" --ignore=\"SESSION_FINDINGS.md\" --ignore=\"package-log.txt\""
   },
   "devDependencies": {
     "electron": "^43.0.0",
