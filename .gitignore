@@ -1,0 +1,29 @@
+# Dependencies - regenerated via npm install
+node_modules/
+
+# Build output - the packaged .exe goes in a GitHub Release, not the repo
+dist/
+build/
+out/
+
+# Personal/instance-specific - this is YOUR current dynasty's conference
+# overrides, not something a new user should inherit as their default.
+# The .EXAMPLE.txt template stays tracked.
+teamConferenceOverrides.json
+
+# Save files - should never end up in the project folder, but just in case
+*.sav
+DYNASTY-*
+
+# OS/editor cruft
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Logs
+npm-debug.log*
+*.log
+
+# Env files, if any ever get added
+.env

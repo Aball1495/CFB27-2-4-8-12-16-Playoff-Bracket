@@ -1,0 +1,19 @@
+{
+  "name": "cfb27-playoff-editor",
+  "productName": "CFB27 Playoff Editor",
+  "version": "1.0.0",
+  "description": "Custom playoff bracket builder and BCS-style ranking tool for EA Sports College Football 27 dynasty saves.",
+  "type": "module",
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "package:win": "npx @electron/packager . \"CFB27 Playoff Editor\" --platform=win32 --arch=x64 --out=dist --overwrite --asar=false --ignore=\"^/dist\" --ignore=\"^/diagnostic-tools\" --ignore=\"test-config-names.json\" --ignore=\"example-config-12team.json\" --ignore=\"PACKAGING.md\" --ignore=\"TECHNICAL_NOTES.md\" --ignore=\"SESSION_FINDINGS.md\" --ignore=\"package-log.txt\""
+  },
+  "devDependencies": {
+    "electron": "^43.0.0",
+    "@electron/packager": "^20.0.1"
+  },
+  "dependencies": {
+    "madden-franchise": "^4.2.2"
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "_comment": "This config replicates the CURRENT real bracket exactly, as a safe first test of the tool itself. Row numbers below are all confirmed via real in-game screenshots this session.",
+
+  "_teamLookup_confirmed": {
+    "AirForce": 0,
+    "BYU": 16,
+    "UNLV": 125
+  },
+  "_teamLookup_readDirectly_notYetNamed": {
+    "_note": "These rows were read directly from the confirmed First Round / QF bye slots. We know THESE rows are the right teams for these games, we just haven't 100% pinned down every name yet.",
+    "firstRound925_home": 67,
+    "firstRound925_away": 103,
+    "firstRound926_home": 126,
+    "firstRound926_away": 115,
+    "firstRound927_home": 87,
+    "firstRound927_away": 88,
+    "qfBye928_away": 113,
+    "qfBye929_away": 40,
+    "qfBye930_away": 85,
+    "qfBye931_away": 65
+  },
+
+  "firstRound": [
+    { "home": 125, "away": 16 },
+    { "home": 67,  "away": 103 },
+    { "home": 126, "away": 115 },
+    { "home": 87,  "away": 88 }
+  ],
+  "quarterfinalByes": [113, 40, 85, 65],
+
+  "semifinals": [
+    { "home": null, "away": null },
+    { "home": null, "away": null }
+  ]
+}

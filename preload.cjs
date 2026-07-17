@@ -1,0 +1,19 @@
+const { contextBridge, ipcRenderer } = require('electron');
+
+contextBridge.exposeInMainWorld('api', {
+  pickInputFile: () => ipcRenderer.invoke('pick-input-file'),
+  pickOutputLocation: (defaultName) => ipcRenderer.invoke('pick-output-location', defaultName),
+  getTeamList: () => ipcRenderer.invoke('get-team-list'),
+  getRegularBowls: () => ipcRenderer.invoke('get-regular-bowls'),
+  getTeamConferences: () => ipcRenderer.invoke('get-team-conferences'),
+  detectConferenceChampions: (payload) => ipcRenderer.invoke('detect-conference-champions', payload),
+  computeBcsRankings: (payload) => ipcRenderer.invoke('compute-bcs-rankings', payload),
+  getRound1Status: (payload) => ipcRenderer.invoke('get-round1-status', payload),
+  detectConferencesFromSchedule: (payload) => ipcRenderer.invoke('detect-conferences-from-schedule', payload),
+  saveConferenceOverrides: (payload) => ipcRenderer.invoke('save-conference-overrides', payload),
+  checkConferenceMismatch: (payload) => ipcRenderer.invoke('check-conference-mismatch', payload),
+  runEdit: (payload) => ipcRenderer.invoke('run-edit', payload),
+  protectUserCoach: (payload) => ipcRenderer.invoke('protect-user-coach', payload),
+  checkUserCoach: (payload) => ipcRenderer.invoke('check-user-coach', payload),
+  verifyGameFingerprint: (payload) => ipcRenderer.invoke('verify-game-fingerprint', payload),
+});

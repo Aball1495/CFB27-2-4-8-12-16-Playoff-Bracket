@@ -1,0 +1,56 @@
+This is an example, not a real config file - do not rename this to
+teamConferenceOverrides.json and use it directly, since it lists
+conferences that match THIS project's specific realignment, not yours.
+
+HOW THIS WORKS
+
+The app ships with a built-in team -> conference map, but that map
+reflects one specific dynasty's conference realignment. If your dynasty
+has moved teams to different conferences, the app's autobid detection,
+Power/Group conference split, and BCS ranking's conference-based bonuses
+will all be wrong for any team you've moved - possibly silently.
+
+To fix this: edit teamConferenceOverrides.json (the real file, sitting
+next to this example, starts as an empty {}) and list ONLY the teams
+you've moved. Anything you don't list keeps its built-in default. You do
+NOT need to list all 143 teams - just the ones that are different in your
+save.
+
+EXAMPLE
+
+If you moved Boise State to the Big 12 and Memphis to the SEC, your real
+teamConferenceOverrides.json should look like this:
+
+{
+  "Boise State": "Big 12",
+  "Memphis": "SEC"
+}
+
+Conference names must be spelled exactly as the app already uses them:
+SEC, Big Ten, Big 12, ACC, American, Mountain West, Pac-12, MAC,
+Sun Belt, Conference USA, Independent
+
+If your realignment introduces a conference name that isn't in that list
+(a renamed or newly-created conference), that's fine too - just use
+whatever name you want for it consistently across every team you assign
+to it, and it'll show up correctly throughout the app.
+
+Team names must be spelled exactly as they appear in team_lookup.json in
+this same folder (e.g. "Miami" not "University of Miami", "USF" not
+"South Florida").
+
+AFTER EDITING
+
+Restart the app (fully close and reopen) for the change to take effect -
+the file is only read once, when the app starts.
+
+HOW TO TELL IF YOU NEED TO DO THIS AT ALL
+
+Go to the Autobids tab and load your save. If a real Conference
+Championship game doesn't show up as a detected conference champion, or
+you see a warning that a championship game didn't match any conference,
+that's the sign - it means at least one of those two teams' listed
+conference doesn't match its real conference in your save, or the two
+teams playing in that title game aren't in the same conference according
+to the app's map. Add an override for whichever team(s) are wrong and
+restart.
