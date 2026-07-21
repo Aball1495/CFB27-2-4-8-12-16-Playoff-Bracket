@@ -539,7 +539,7 @@ ipcMain.handle('get-round1-status', async (event, { inputPath }) => {
 ipcMain.handle('run-edit', async (event, { inputPath, outputPath, config }) => {
   const log = [];
   try {
-    const { openSaveWithTeamTable, readMatchup, writeMatchup, repackSave, REGULAR_BOWLS, readRegularBowlMatchups, TEAM_TABLE_ID } = await import('./playoffEditorCore.mjs');
+    const { openSave, openSaveWithTeamTable, readMatchup, writeMatchup, repackSave, REGULAR_BOWLS, readRegularBowlMatchups, TEAM_TABLE_ID } = await import('./playoffEditorCore.mjs');
     const { teamRow, rowToName, lookup } = await import('./teamLookup.mjs');
 
     const originalRawBuf = fs.readFileSync(inputPath);
@@ -563,6 +563,8 @@ ipcMain.handle('run-edit', async (event, { inputPath, outputPath, config }) => {
     // writeGame's definition) so the dummy-swap cleanup block below can
     // also push into it - see the "if (changed)" fix inside that block.
     const writtenRecords = [];
+    let wroteRound2Games = false;
+    let wroteRound1Games = false;
 
     // --- Dummy-team cleanup ---
     // Any team that's part of this playoff bracket but is *also* still
@@ -659,8 +661,27 @@ ipcMain.handle('run-edit', async (event, { inputPath, outputPath, config }) => {
     const writeGame = (recordIndex, game, label) => {
       if (!game || (!game.home && !game.away)) return;
       const before = readMatchup(buf, recordsStart, recordSize, recordIndex);
-      const beforeHome = before.home.tableId === TEAM_TABLE_ID ? rowToName(before.home.row) : 'TBD';
-      const beforeAway = before.away.tableId === TEAM_TABLE_ID ? rowToName(before.away.row) : 'TBD';
+      const beforeHomeValid = before.home.tableId === TEAM_TABLE_ID;
+      const beforeAwayValid = before.away.tableId === TEAM_TABLE_ID;
+      const beforeHome = beforeHomeValid ? rowToName(before.home.row) : 'TBD';
+      const beforeAway = beforeAwayValid ? rowToName(before.away.row) : 'TBD';
+
+      // SAFEGUARD: game.home/game.away being null means "auto-fill from
+      // whatever team already won the previous round, already sitting in
+      // this slot." If nothing valid is actually sitting there yet, the
+      // previous round hasn't been simmed/saved yet in this save file -
+      // continuing would write a garbage team reference into the slot.
+      // CONFIRMED this can happen in practice: running the tool against a
+      // save from before the needed round finished produced exactly this
+      // (logged as "TBD -> <team>" on one side, meaning TBD is literally
+      // what got written in as the real reference). Abort loudly instead.
+      if (!game.home && !beforeHomeValid) {
+        throw new Error(`${label}: expected an already-decided winner for the home side, but found none in this save. This usually means the save hasn't been simmed through the previous round yet - sim to the correct week, save, and point the tool at THAT save file.`);
+      }
+      if (!game.away && !beforeAwayValid) {
+        throw new Error(`${label}: expected an already-decided winner for the away side, but found none in this save. This usually means the save hasn't been simmed through the previous round yet - sim to the correct week, save, and point the tool at THAT save file.`);
+      }
+
       const homeRow = game.home ? teamRow(game.home) : before.home.row;
       const awayRow = game.away ? teamRow(game.away) : before.away.row;
       // Confirmed in-game: the team written into the file's AwayTeam field
@@ -677,14 +698,17 @@ ipcMain.handle('run-edit', async (event, { inputPath, outputPath, config }) => {
 
     if (config.bracketSize === 16) {
       (config.round1 || []).slice(0, 4).forEach((game, i) => {
+        if (game && (game.home || game.away)) wroteRound1Games = true;
         writeGame(slotMap.round1Native[i], game, `Round 1 (First Round game ${i + 1})`);
       });
       (config.round1 || []).slice(4, 8).forEach((game, i) => {
+        if (game && (game.home || game.away)) wroteRound1Games = true;
         const bowlName = slotMap.round1BowlNames[i];
         const bowlInfo = REGULAR_BOWLS.find(b => b.name === bowlName);
         writeGame(bowlInfo.record, game, `Round 1 (${bowlName})`);
       });
       (config.round2 || []).forEach((game, i) => {
+        if (game && (game.home || game.away)) wroteRound2Games = true;
         writeGame(slotMap.round2[i], game, `Round 2 (Quarterfinal ${i + 1})`);
       });
     } else if (config.bracketSize === 12) {
@@ -708,6 +732,21 @@ ipcMain.handle('run-edit', async (event, { inputPath, outputPath, config }) => {
     fs.writeFileSync(outputPath, finalBuf);
     log.push(`Wrote ${outputPath} (${finalBuf.length} bytes). Done!`);
 
+    // Safety check, not a fix: confirmed real bug where repackSave can
+    // occasionally produce a file that findZlibStart later misreads on
+    // re-open (a coincidental false-positive zlib header match earlier in
+    // the file than the real one - see SESSION_FINDINGS.md). This doesn't
+    // solve that; it just makes sure we never silently hand back a broken
+    // file. Immediately try to re-open what we just wrote, before doing
+    // anything else with it.
+    try {
+      await openSave(outputPath, path.join(__dirname, 'schemas'));
+    } catch (verifyErr) {
+      log.push(`*** VERIFICATION FAILED - the file we just wrote could not be re-opened (${verifyErr.message}). ***`);
+      log.push('*** DO NOT use this output file. This is a known, unresolved bug in the save-writing step itself - see the Discord. ***');
+      return { success: false, log };
+    }
+
     // Fix for a confirmed beta bug: a bracket slot can carry a leftover
     // GameStatus/IsSimmed state from whatever the game's own default
     // matchup was (e.g. "HomeWon"/IsSimmed=true - already decided, nothing
@@ -721,7 +760,18 @@ ipcMain.handle('run-edit', async (event, { inputPath, outputPath, config }) => {
     // touching extra fields caused visual corruption. Not yet confirmed
     // in-game that this specific fix resolves the bye - needs real
     // testing before trusting broadly.
-    if (writtenRecords.length) {
+    // Computed here, before deciding whether to even open the schema
+    // library a second time - a pure Round 2 call has nothing to
+    // rank-sync, so it should skip the re-open entirely, not just skip
+    // the write inside it. Re-opening the file we just wrote carries a
+    // real, confirmed corruption risk (see SESSION_FINDINGS.md) - no
+    // reason to take that risk when there's nothing to actually change.
+    const isSecondPassOf16 = config.bracketSize === 16 && wroteRound2Games && !wroteRound1Games;
+    if (isSecondPassOf16) {
+      log.push('Rank sync - skipped entirely, including the file re-open (16-team Round 2 reseed only changes pairings, not seed numbers - ranks were already written correctly in Pass 1).');
+    }
+
+    if (writtenRecords.length && !isSecondPassOf16) {
       try {
         const Franchise = (await import('madden-franchise')).default;
         const franchise2 = await Franchise.create(outputPath, {
@@ -733,34 +783,30 @@ ipcMain.handle('run-edit', async (event, { inputPath, outputPath, config }) => {
         const seasonTable2 = resolveTable(franchise2, TUI.SeasonGame, 'SeasonGame');
         await seasonTable2.readRecords();
 
-        // Only reset GameStatus on the actual target playoff slots for this
-        // bracket size — NOT on dummy-swap records from prior weeks.
-        // Dummy-swapped records may be in weeks that have already been played
-        // (e.g. Week 18 for a 4-team bracket), and resetting their GameStatus
-        // to HomeScheduled causes the game to replay those weeks.
-        const targetSlots = new Set([
-          ...(slotMap.round1 || []),
-          ...(slotMap.round1Native || []),
-          ...(slotMap.quarterfinals || []),
-          ...(slotMap.round2 || []),
-          ...(config.bracketSize === 16
-            ? (slotMap.round1BowlNames || []).map(name => REGULAR_BOWLS.find(b => b.name === name)?.record).filter(Boolean)
-            : []),
-        ]);
+        // CONFIRMED BUG, removed: this used to force GameStatus/IsSimmed/
+        // HasBeenPublished back to an unplayed state on every record we
+        // write into. Testing proved this is what breaks live-play result
+        // commitment - a game reset this way gets stuck showing as
+        // "still needs to be played" even after being fully played to
+        // completion, regardless of anything else touched in the same
+        // pass (isolated via testing: team-only writes work and hold up
+        // through both simming and live play; status-only writes break
+        // it on their own, with zero team change involved). See
+        // SESSION_FINDINGS.md.
+        //
+        // We no longer touch these fields at all. A record's leftover
+        // native GameStatus/score is inherited from whatever it last
+        // held - if the game gets auto-simmed, that leftover carries
+        // through (cosmetic only); if the user plays it live, their
+        // played result correctly overrides it, same as any other game
+        // in the game that was never touched by this tool.
 
-        for (const recordIndex of writtenRecords) {
-          if (!targetSlots.has(recordIndex)) continue; // skip dummy-swap records
-          const rec = seasonTable2.records[recordIndex];
-          if (!rec) continue;
-          try {
-            rec.GameStatus = 'HomeScheduled';
-            rec.IsSimmed = false;
-            rec.HasBeenPublished = false;
-            log.push(`Record ${recordIndex}: reset GameStatus/IsSimmed/HasBeenPublished to an unplayed state.`);
-          } catch (fieldErr) {
-            log.push(`Record ${recordIndex}: could not reset game-status fields - ${fieldErr.message}`);
-          }
-        }
+        // Request ID regeneration removed - it was built for the
+        // wrong-opponent display bug, which testing later proved is a
+        // pure EA-side in-memory cache with zero footprint in the save
+        // file at all. No amount of save editing could ever have fixed
+        // it, so this never showed a confirmed benefit. Removed for
+        // simplicity now that the tool only does team swap + rank sync.
 
         // --- Poll-rank sync (CFP/Coaches/Media + TeamRank) ---
         // Makes the in-game Top 25 display match the tool's own seeding
@@ -783,16 +829,7 @@ ipcMain.handle('run-edit', async (event, { inputPath, outputPath, config }) => {
         // directly, which is the literal source of truth the "Round 1
         // Matchups" panel itself is built from - no reconstruction, no
         // room for the two data sources to disagree.
-        //
-        // Skipped on the 16-team SECOND pass: reseeding only changes who
-        // plays whom in the Quarterfinal, not each team's underlying seed
-        // number - ranks were already written correctly in Pass 1 and
-        // don't need touching again. Detected by config.round1 being
-        // empty/absent (Pass 1 always populates it; Pass 2 only sends
-        // config.round2).
-        const isSecondPassOf16 = config.bracketSize === 16 && !(config.round1 && config.round1.length);
-
-        if (!isSecondPassOf16 && config.seedAssignments && config.seedAssignments.length) {
+        if (config.seedAssignments && config.seedAssignments.length) {
           const seedAssignments = config.seedAssignments
             .filter(a => a && a.team)
             .map(a => ({ row: teamRow(a.team), seed: a.seed }));
@@ -815,30 +852,26 @@ ipcMain.handle('run-edit', async (event, { inputPath, outputPath, config }) => {
           } else {
             log.push('Rank sync - seedAssignments was present but empty after filtering, skipped.');
           }
-        } else if (isSecondPassOf16) {
-          log.push('Rank sync - skipped (16-team Round 2 reseed only changes pairings, not seed numbers).');
         } else {
           log.push('Rank sync - skipped (no seedAssignments provided by the renderer - update index.html to the version that sends config.seedAssignments).');
         }
 
         await franchise2.save();
-        log.push('Game-status reset and rank sync saved.');
+        log.push('Rank sync saved.');
       } catch (err) {
-        log.push(`WARNING - game-status reset/rank sync failed, but the bracket itself was already written successfully: ${err.message}`);
+        log.push(`WARNING - rank sync failed, but the bracket itself was already written successfully: ${err.message}`);
       }
     }
 
     // --- Verify no collateral damage outside this run's own rules ---
-    // CONFIRMED BUG: an 8-team run (should only ever touch 928-931) was
-    // observed reverting already-played Week 17 results (924-927) back
-    // to unplayed. The explicit GameStatus-reset loop above was already
-    // correctly scoped via targetSlots, which means the disturbance was
-    // happening some other way - most likely a side effect of the second
-    // Franchise.create()/save() pass re-serializing the entire SeasonGame
-    // table, not anything this code explicitly set. Rather than trust
-    // that scoping again, this re-opens the original input and the final
-    // output and directly compares every record's play-status fields.
-    // Anything outside this run's allowed set that changed anyway is
+    // Originally added after a CONFIRMED BUG where an 8-team run (should
+    // only ever touch 928-931) reverted already-played Week 17 results
+    // (924-927) back to unplayed - traced to the GameStatus-reset pass
+    // that used to run here (now removed entirely, see above). Kept as
+    // a general safety net even without that pass: still re-opens the
+    // original input and the final output and directly compares every
+    // record's play-status fields. Anything outside this run's allowed set
+    // that changed anyway is
     // flagged as a hard failure - this is the "each bracket bound to its
     // own rules" enforcement, checked after the fact instead of assumed.
     try {

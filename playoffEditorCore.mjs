@@ -70,11 +70,27 @@ function resolveTeamTableId(franchise) {
  */
 function findZlibStart(buf) {
   const limit = Math.min(buf.length - 1, 8192);
-  for (let i = 0; i < limit; i++) {
+  // CONFIRMED BUG, real corruption (not just a false alarm in our own
+  // checker - the actual game refused to load an affected file):
+  // repackSave() always writes its 3-byte compressed-length field at
+  // bytes 74-76. Scanning from byte 0 occasionally lets those exact
+  // bytes coincidentally pass the zlib CMF/FLG checksum AND then
+  // "successfully" decompress to plausible-length garbage, since a
+  // checksum match plus a non-throwing decompress still isn't proof -
+  // both can happen by chance. The real zlib stream has never been
+  // observed starting anywhere near that field in any file this project
+  // has examined; skip it entirely rather than risk matching it.
+  const start = 78;
+  for (let i = start; i < limit; i++) {
     const cmf = buf[i];
     const flg = buf[i + 1];
     if ((cmf & 0x0f) === 8 && (cmf * 256 + flg) % 31 === 0) {
-      return i;
+      try {
+        zlib.inflateSync(buf.subarray(i));
+        return i;
+      } catch {
+        continue;
+      }
     }
   }
   throw new Error('Could not find a valid zlib header in this save file.');
@@ -825,7 +841,11 @@ async function checkUserCoachFlags(inputPath, schemaDirectory) {
     } catch {
       continue;
     }
-    if (isCreated === true || isUserControlled === true) {
+    // Only IsCreated matters here - IsUserControlled=true is completely
+    // normal for whichever coach(es) you're actually playing as, and
+    // triggering on it too meant this popup showed up on every single
+    // load regardless of whether any coach was actually at risk.
+    if (isCreated === true) {
       atRisk.push({ row: i, firstName, lastName, isCreated, isUserControlled });
     }
   }
@@ -834,17 +854,26 @@ async function checkUserCoachFlags(inputPath, schemaDirectory) {
 }
 
 /**
- * Confirmed community fix for a known bug: retiring a coach who has BOTH
+ * Confirmed community fix for a known bug: retiring a coach who has
  * IsCreated=true AND IsUserControlled=true orphans that team's
  * Team.UserCharacter binding, locking the user out of reselecting their
- * own team afterward. Setting both flags to false BEFORE retiring avoids
+ * own team afterward. Setting IsCreated=false BEFORE retiring avoids
  * this entirely - the retirement then behaves like a normal AI-coach
  * retirement (which is also the trigger for a separate, known display-bug
  * fix - see SESSION_FINDINGS.md).
  *
+ * CORRECTED: earlier versions of this fix also set IsUserControlled to
+ * false. That was wrong and caused a SEPARATE bug - flipping
+ * IsUserControlled locks you out of your OWN original team the next time
+ * you try to switch control to it, since the game no longer recognizes
+ * you as the controlling user for that team. Only IsCreated needs to
+ * change to prevent the retirement-orphaning bug; IsUserControlled must
+ * be left exactly as it was.
+ *
  * Auto-detects the coach(es) currently flagged IsUserControlled=true
  * rather than requiring the user to type a name - there's normally
- * exactly one in a solo/offline dynasty.
+ * exactly one in a solo/offline dynasty. That flag is used ONLY to
+ * identify which coach is "yours" - it is never written to.
  *
  * Uses franchise.save() directly (schema-aware write), not the raw-buffer
  * repackSave() path used elsewhere in this file - confirmed working for
@@ -864,6 +893,7 @@ async function protectUserCoach(inputPath, outputPath, schemaDirectory) {
   await coachTable.readRecords();
 
   const fixed = [];
+  const alreadySafe = [];
   for (let i = 0; i < coachTable.records.length; i++) {
     const rec = coachTable.records[i];
     if (!rec) continue;
@@ -876,20 +906,28 @@ async function protectUserCoach(inputPath, outputPath, schemaDirectory) {
     } catch {
       continue;
     }
+    // IsUserControlled identifies which coach is yours - read only, never written.
     if (isUserControlled !== true) continue;
 
-    log.push(`Row ${i}: "${firstName} ${lastName}" - IsCreated=${isCreated}, IsUserControlled=${isUserControlled} -> setting both to false.`);
+    if (isCreated !== true) {
+      log.push(`Row ${i}: "${firstName} ${lastName}" - IsCreated already false, nothing to fix. IsUserControlled left untouched.`);
+      alreadySafe.push({ row: i, firstName, lastName });
+      continue;
+    }
+
+    log.push(`Row ${i}: "${firstName} ${lastName}" - IsCreated=true -> setting to false. IsUserControlled left untouched (was ${isUserControlled}).`);
     rec['IsCreated'] = false;
-    rec['IsUserControlled'] = false;
     fixed.push({ row: i, firstName, lastName });
   }
 
-  if (fixed.length === 0) {
+  if (fixed.length === 0 && alreadySafe.length === 0) {
     log.push('No coach found with IsUserControlled=true. Either already protected, or this save has no human-controlled team.');
+  } else if (fixed.length === 0) {
+    log.push('Coach is already safe to retire - no changes needed, no file written.');
   } else {
     await franchise.save(outputPath);
     log.push(`Saved to ${outputPath}. ${fixed.length} coach(es) protected - safe to retire them without losing control of your team.`);
   }
 
-  return { log, fixed };
+  return { log, fixed, alreadySafe };
 }
