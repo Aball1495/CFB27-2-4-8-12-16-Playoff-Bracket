@@ -457,6 +457,10 @@
 
 <!-- APP: CONFERENCES -->
 <div class="appPanel active" id="app-conferences">
+  <div id="conferencesGuidePanel" class="panel" style="border-left:3px solid var(--gold); margin-bottom:16px;">
+    <p class="hint" style="margin:0;">Choose your save file at the top of the page to get started.</p>
+  </div>
+
   <div class="panel">
     <h2>Conference Standings <span class="count" id="standingsStatus"></span></h2>
     <p class="hint">Grouped by conference, with a &#128081; on each detected champion. Uses the same computed ranking as the Bracket Tool for win/loss records.</p>
@@ -486,6 +490,12 @@
   <button class="tabbtn active" data-tab="2"><span class="step-num">1</span>Format</button>
   <button class="tabbtn" data-tab="3" disabled><span class="step-num">2</span>Autobids</button>
   <button class="tabbtn" data-tab="4" disabled><span class="step-num">3</span>Bracket</button>
+  <button class="tabbtn" data-tab="5" disabled><span class="step-num">4</span>Bracket View</button>
+  <button class="tabbtn" data-tab="6">Bracket History</button>
+</div>
+
+<div id="stepGuidePanel" class="panel" style="border-left:3px solid var(--gold); margin-bottom:16px;">
+  <p class="hint" style="margin:0;">Pick a bracket format below to see your step-by-step guide.</p>
 </div>
 
 <!-- TAB: FORMAT -->
@@ -525,7 +535,7 @@
 <!-- TAB: AUTOBIDS -->
 <div class="tabpanel" id="tab3">
   <details class="panel">
-    <summary style="margin:0;">Ranking settings &amp; computed rankings <span class="hint">(used for autobids and At-Large fill)</span></summary>
+    <summary style="margin:0;">Ranking settings &amp; computed rankings <span class="hint">(used for autobids and At-Large fill - expand to see the formula, or adjust its BCS-style metrics yourself)</span></summary>
     <div style="margin-top:14px;">
       <p class="hint">The game's own rankings only work for the actual real-life Top 25 &mdash; every other team's "rank" in the save file is basically random noise. So instead of trusting that, this tool builds its own ranking from scratch using things we can measure directly and reliably: who actually won each game. No guessing, no noise.</p>
 
@@ -723,6 +733,79 @@
       <div id="round2Log">Nothing run yet.</div>
     </div>
   </div>
+
+  <div class="panel" id="round2Panel12" style="display:none; margin-top:18px;">
+    <h2>Round 2: Set the Quarterfinals <span class="count">12-team only</span></h2>
+    <p class="hint">Real gameplay (confirmed via actual Bowl Week 2 results) showed the game's native auto-advance does NOT match the real CFP convention - it currently pairs 5/12's winner with seed 1, when it should be 8/9's winner facing seed 1. Rather than fight that, this writes the correct pairing directly once Round 1 is actually played: 8/9's winner plays seed 1, 7/10's winner plays seed 2, 6/11's winner plays seed 3, 5/12's winner plays seed 4 - overriding whatever the game already auto-advanced. Bye seeds below are read directly from this save, not from whatever's still in the Autobids tab's seed dropdowns.</p>
+
+    <div style="display:flex; align-items:center; gap:10px; margin:14px 0;">
+      <button class="secondary" id="btnPickRound2Input12">Load save (after Round 1 is played)</button>
+      <span id="round2FilePathDisplay12" style="font-family:'SF Mono',Consolas,monospace; font-size:12px; color:var(--text-dim);"></span>
+    </div>
+    <button class="secondary" id="btnCheckRound1_12">Check Round 1 results</button>
+    <p class="hint" id="round2Status12" style="margin-top:8px;"></p>
+
+    <div id="round1ResultsRows12" style="margin-top:14px;"></div>
+
+    <div class="navBar">
+      <button class="primary" id="btnApplyRound2_12" disabled>Apply Round 2 &amp; Save</button>
+    </div>
+    <div class="panel" style="margin-top:14px;">
+      <h2>Round 2 Log</h2>
+      <div id="round2Log12">Nothing run yet.</div>
+    </div>
+  </div>
+</div>
+
+<!-- TAB: BRACKET VIEW (tree) -->
+<div class="tabpanel" id="tab5">
+  <div class="panel">
+    <h2>Bracket View</h2>
+    <p class="hint">A live visual tree of your bracket - fills in as you Apply each round. This is read-only and view-only; it never writes anything to your save.</p>
+    <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
+      <button class="secondary" id="btnPickBracketViewInput">Load a different save to view</button>
+      <span id="bracketViewFilePathDisplay" class="hint" style="margin:0;">Currently viewing the save loaded at the top of the page.</span>
+    </div>
+    <p class="hint" style="margin:0 0 10px;">The bracket will match the format you currently have selected (<span id="bracketViewSelectedFormatLabel" style="color:var(--gold); font-weight:600;"></span>) for number of teams - loading a save built for a different size here won't switch that automatically, since size comes from the Format tab, not detected from the file.</p>
+    <p class="hint" style="margin:0 0 10px;">Running Round 2 (or any later round) produces a new output file - point this at that file directly if you want to confirm it before loading it in-game, rather than needing to re-pick it at the top of the page.</p>
+    <div style="display:flex; align-items:center; gap:14px; margin-bottom:14px; flex-wrap:wrap;">
+      <button class="secondary" id="btnRefreshBracketView">Refresh</button>
+      <label class="hint" style="margin:0; display:flex; align-items:center; gap:6px;">
+        Zoom
+        <input type="range" id="bracketViewZoom" min="30" max="150" value="100" style="vertical-align:middle;">
+        <span id="bracketViewZoomLabel">100%</span>
+      </label>
+    </div>
+    <div id="bracketViewContainer" style="overflow-x:auto;">
+      <p class="hint">Load a save and pick a bracket size first.</p>
+    </div>
+    <div id="saveBracketRow" style="display:none; margin-top:16px; align-items:center; gap:10px;">
+      <span class="hint" style="margin:0;">Champion decided - save this bracket to history as season:</span>
+      <input type="number" id="saveBracketYear" style="width:90px;" />
+      <button class="primary" id="btnSaveBracketToHistory">Save Bracket</button>
+      <span id="saveBracketStatus" class="hint" style="margin:0;"></span>
+    </div>
+  </div>
+</div>
+
+<!-- TAB: BRACKET HISTORY -->
+<div class="tabpanel" id="tab6">
+  <div class="panel">
+    <h2>Bracket History</h2>
+    <p class="hint">Every bracket you've saved with the "Save Bracket" button, one per season. Saving is manual and by year, so testing/re-running the tool never spams this list - saving the same year again just overwrites that year's entry.</p>
+    <div style="display:flex; align-items:center; gap:14px; margin-bottom:14px; flex-wrap:wrap;">
+      <button class="secondary" id="btnRefreshBracketHistory">Refresh</button>
+      <label class="hint" style="margin:0; display:flex; align-items:center; gap:6px;">
+        Zoom
+        <input type="range" id="bracketHistoryZoom" min="30" max="150" value="100" style="vertical-align:middle;">
+        <span id="bracketHistoryZoomLabel">100%</span>
+      </label>
+    </div>
+    <select id="bracketHistoryList" style="margin-bottom:16px;"></select>
+    <div id="bracketHistoryContainer" style="overflow-x:auto;">
+      <p class="hint">No year selected yet.</p>
+    </div>
+  </div>
 </div>
 
 
@@ -731,6 +814,605 @@
 </div>
 
 <script>
+// --- Bracket View (tree) rendering code - built and validated standalone,
+// see SESSION_FINDINGS.md for the full color/contrast/layout derivation ---
+let TEAM_COLORS = {};
+// Bracket tree view - color, contrast, and label logic.
+// Built standalone first so it can be visually verified against the
+// spec's named test cases (Duke, Baylor, UTEP, Toledo, Army, MTSU, Ohio
+// State) before being merged into index.html. Plain functions, no
+// import/export - designed to be pasted directly into a <script> block
+// to match how the rest of index.html's renderer code is structured.
+
+function hexToRgb(hex) {
+  hex = hex.replace('#', '');
+  return {
+    r: parseInt(hex.slice(0, 2), 16),
+    g: parseInt(hex.slice(2, 4), 16),
+    b: parseInt(hex.slice(4, 6), 16),
+  };
+}
+
+// WCAG relative luminance - this is the "calculated from actual
+// brightness" rule from the spec, not a hardcoded light/dark guess.
+function relativeLuminance(hex) {
+  const { r, g, b } = hexToRgb(hex);
+  const [rs, gs, bs] = [r, g, b].map((c) => {
+    c = c / 255;
+    return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+  });
+  return 0.2126 * rs + 0.7152 * gs + 0.0722 * bs;
+}
+
+function contrastRatio(hexA, hexB) {
+  const La = relativeLuminance(hexA);
+  const Lb = relativeLuminance(hexB);
+  const lighter = Math.max(La, Lb);
+  const darker = Math.min(La, Lb);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+// Text/badge color for a given background - computed, not assumed.
+// Confirmed test case from the spec: Baylor's gold with white text was
+// unreadable; this picks dark text for Baylor gold correctly because it
+// actually compares contrast against both options rather than assuming
+// "dark background = white text" as a blanket rule.
+function textColorFor(bgHex) {
+  const contrastWithWhite = contrastRatio(bgHex, '#FFFFFF');
+  const contrastWithDark = contrastRatio(bgHex, '#1A1A1A');
+  return contrastWithWhite >= contrastWithDark ? '#FFFFFF' : '#1A1A1A';
+}
+
+// "Near black" threshold for the hard rule: black is reserved for
+// badges only, never the box fill. Using relative luminance rather than
+// literal #000000 so very-dark-but-not-pure-black colors also get
+// excluded from fill candidacy - matches the spirit of the rule (black
+// blending into a black-badge scenario, per the confirmed Army bug)
+// rather than only catching the exact hex value.
+function isNearBlack(hex) {
+  return relativeLuminance(hex) < 0.03;
+}
+
+// Same spirit, other extreme. CONFIRMED BUG this caught by cross-
+// checking against the real reference bracket: without this, Ohio
+// State's fill/accent picker chose white+black as fill/accent (trivial
+// near-21:1 contrast) instead of the team's real scarlet - because
+// white-vs-black beats almost any actual brand color on paper while
+// completely failing to look like the team. Verified fix against the
+// reference SVG: Ohio State's real box fill is #BB0000 (scarlet), not
+// white.
+function isNearWhite(hex) {
+  return relativeLuminance(hex) > 0.9;
+}
+
+// Low-saturation ("utility gray") exclusion. CONFIRMED BUG this caught:
+// UTEP's real signature color is orange, but its listed gray (#B1B3B3)
+// isn't close to pure black or white, so the black/white exclusions
+// above don't catch it - gray+navy scored a marginally higher
+// mathematical contrast ratio than orange+navy, causing the picker to
+// choose the bland utility gray over UTEP's actual identity color.
+// HSL saturation catches this: a near-neutral gray has very low
+// saturation regardless of how dark or light it is.
+function saturation(hex) {
+  const { r, g, b } = hexToRgb(hex);
+  const [rn, gn, bn] = [r / 255, g / 255, b / 255];
+  const max = Math.max(rn, gn, bn);
+  const min = Math.min(rn, gn, bn);
+  const l = (max + min) / 2;
+  if (max === min) return 0;
+  const d = max - min;
+  return l > 0.5 ? d / (2 - max - min) : d / (max + min);
+}
+function isLowSaturation(hex) {
+  return saturation(hex) < 0.15;
+}
+
+// Picks the best-contrast pair from a team's color list for box fill +
+// accent line. Fill is restricted to colors that are neither near-black,
+// near-white, nor low-saturation "utility gray" (all hard-excluded per
+// the rules above, with a fallback to the unrestricted list if a team's
+// entire palette happens to fail every check); accent has no such
+// restriction. Confirmed test cases against the real reference bracket:
+// Toledo picks dark-blue fill + yellow accent (not the two blues, which
+// have poor mutual contrast); Ohio State picks scarlet fill + white
+// accent; South Carolina picks maroon fill + black accent; UTEP picks
+// orange fill + navy accent (not its utility gray). 14/16 real teams
+// from the reference bracket matched exactly after these fixes; Kansas
+// is a known remaining edge case where the reference's red accent choice
+// appears to be a brand-preference call rather than the mathematically
+// highest-contrast option (gold scores slightly higher on paper) - see
+// SESSION_FINDINGS.md if this needs revisiting.
+function pickFillAndAccent(colors) {
+  const fillCandidates = colors.filter((c) => !isNearBlack(c) && !isNearWhite(c) && !isLowSaturation(c));
+  const usableFills = fillCandidates.length ? fillCandidates : colors;
+
+  let bestFill = null;
+  let bestAccent = null;
+  let bestRatio = -1;
+  for (const fill of usableFills) {
+    for (const accent of colors) {
+      if (accent === fill) continue;
+      const ratio = contrastRatio(fill, accent);
+      if (ratio > bestRatio) {
+        bestRatio = ratio;
+        bestFill = fill;
+        bestAccent = accent;
+      }
+    }
+  }
+  if (!bestFill) return { fill: colors[0], accent: colors[0] };
+  return { fill: bestFill, accent: bestAccent };
+}
+
+// Badge fill is the accent color. Badge text defaults to the box's own
+// fill color (so the badge visually "matches" the team, confirmed
+// pattern in the reference for Ohio State and North Dakota State), but
+// falls back to a computed high-contrast color if that specific pairing
+// would be unreadable (confirmed pattern for South Carolina: maroon
+// text on a black badge fails the threshold, so it falls back to white
+// instead of using the unreadable box-fill maroon).
+const BADGE_TEXT_MIN_CONTRAST = 2.5;
+function getBadgeTextColor(badgeFill, boxFill) {
+  if (contrastRatio(badgeFill, boxFill) >= BADGE_TEXT_MIN_CONTRAST) return boxFill;
+  return textColorFor(badgeFill);
+}
+
+// Collision-safe badge initials. Specific overrides confirmed in the
+// spec session for known collisions; everything else falls through to
+// a simple default. This is deliberately NOT a fully general algorithm -
+// the spec is explicit that future collisions need a real, judgment-
+// based alternate looked up per case, not invented mechanically.
+const BADGE_OVERRIDES = {
+  'Ohio State': 'OSU',
+  'Oregon State': 'ORST',
+  USC: 'USC',
+  'South Carolina': 'SC',
+  'Oklahoma State': 'OK State',
+  'Middle Tennessee': 'MTSU',
+  'San Jose State': 'SJSU',
+  'North Dakota State': 'NDSU',
+  'Florida State': 'FSU',
+  'Fresno State': 'Fres State',
+  'Kansas State': 'KSU',
+  'Kennesaw State': 'Kenn State',
+  'Arizona State': 'ASU',
+  'Appalachian State': 'App State',
+  'Arkansas State': 'Ark State',
+  'Georgia State': 'GSU',
+  'Michigan State': 'MSU',
+  'Mississippi State': 'MSST',
+  'Missouri State': 'Mizz State',
+  // Same batch as the box label fixes above, found the same way -
+  // scanning all 138 names for the 2-word/>=14-char/short-initials
+  // failure mode. Acronym style here matches the existing badge
+  // convention (ASU, KSU, NDSU, GSU) rather than the box's wordier
+  // style, since the badge is small enough that the tightest
+  // recognizable form reads best.
+  'Florida Atlantic': 'FAU',
+  'Florida International': 'FIU',
+  'Louisiana Tech': 'La Tech',
+  'Southern Mississippi': 'So Miss',
+  'Western Kentucky': 'WKU',
+  'Miami University': 'MOH',
+  'Central Michigan': 'CMU',
+  'Eastern Michigan': 'EMU',
+  'Northern Illinois': 'NIU',
+  'Western Michigan': 'WMU',
+  'Washington State': 'WSU',
+  'Coastal Carolina': 'CCU',
+  'Georgia Southern': 'GaSo',
+  'Sacramento State': 'Sac St',
+  'Jacksonville State': 'Jax St',
+  // Same 14-character threshold bug as the box label above - the small
+  // circular badge would otherwise also show "CS" via defaultInitials.
+  // CSU matches the acronym convention already used for every other
+  // State school's badge (KSU, ASU, GSU, NDSU, MSU) and is also the
+  // real, commonly-used broadcast abbreviation for this specific team.
+  'Colorado State': 'CSU',
+};
+
+function defaultInitials(name) {
+  const skip = new Set(['of', 'at', 'the']);
+  const words = name.split(/\s+/).filter((w) => !skip.has(w.toLowerCase()));
+  if (words.length === 1) return words[0].slice(0, 4).toUpperCase();
+  return words.map((w) => w[0].toUpperCase()).join('').slice(0, 4);
+}
+
+function getBadgeLabel(teamName) {
+  return BADGE_OVERRIDES[teamName] || defaultInitials(teamName);
+}
+
+// Box label overrides - confirmed cases from the spec that need
+// shortening. Note these are NOT always the same string as the badge
+// override (San Jose State: box says "San Jose St", badge says
+// "SJSU" - two different things for two different roles).
+const BOX_LABEL_OVERRIDES = {
+  'Middle Tennessee': 'MTSU',
+  'San Jose State': 'San Jose St',
+  'North Dakota State': 'North Dakota St',
+  'Michigan State': 'MSU',
+  'Mississippi State': 'MSST',
+  'Missouri State': 'MIZZ STATE',
+  'Appalachian State': 'APP STATE',
+  'Arkansas State': 'ARK STATE',
+  // Exactly 14 characters - hits the same threshold San Jose State
+  // does, and the generic 2-word-initials algorithm produces the same
+  // kind of bad result: "CS", which is both too short and genuinely
+  // ambiguous (multiple schools could read as "C.S."). Same fix as
+  // San Jose State: keep the first word full, abbreviate "State".
+  'Colorado State': 'Colorado St',
+  // The rest of this batch was found by scanning all 138 team names
+  // for the same failure mode: any 2-word name >=14 characters whose
+  // generic initials collapse to something short and either wrong or
+  // actively collision-prone with a DIFFERENT real team's common
+  // abbreviation. Deliberately NOT touching Boston College (BC),
+  // North Carolina (NC), or South Carolina (SC) - those hit the same
+  // length threshold but their 2-letter result is a real, unambiguous,
+  // widely-used abbreviation already; overriding those would just be
+  // change for its own sake.
+  'Oklahoma State': 'Oklahoma St',
+  'Florida Atlantic': 'Florida Atl',
+  'Florida International': 'Florida Intl',
+  'Louisiana Tech': 'La Tech',
+  'Southern Mississippi': 'Southern Miss',
+  'Western Kentucky': 'W Kentucky',
+  // "MU" collides directly with Missouri's own common abbreviation.
+  'Miami University': 'Miami OH',
+  'Central Michigan': 'C Michigan',
+  'Eastern Michigan': 'E Michigan',
+  'Northern Illinois': 'N Illinois',
+  // "WM" collides with William & Mary's common abbreviation.
+  'Western Michigan': 'W Michigan',
+  'Washington State': 'Washington St',
+  'Coastal Carolina': 'Coastal Car',
+  'Georgia Southern': 'Ga Southern',
+  // "KS" collides directly with Kansas's own common abbreviation.
+  'Kennesaw State': 'Kennesaw St',
+  'Sacramento State': 'Sacramento St',
+  'Jacksonville State': 'Jacksonville St',
+};
+
+// The actual decided rule (simpler than what the written spec's wording
+// suggested): 14+ characters gets abbreviated, everything else fits
+// fine in the box. Confirmed against every named example: Middle
+// Tennessee (16), San Jose State (14), North Dakota State (18) all
+// clear the threshold; Ohio State (10), Duke (4), Kansas (6), Baylor
+// (6), Indiana (7), LSU (3) all stay under it and stay full-length.
+// Explicit overrides still take priority regardless of length, since
+// they're confirmed preferences (MTSU "reads better"), not merely a
+// fallback for names that don't fit.
+const BOX_LABEL_LENGTH_THRESHOLD = 14;
+function getBoxLabel(teamName) {
+  if (BOX_LABEL_OVERRIDES[teamName]) return BOX_LABEL_OVERRIDES[teamName];
+  return teamName.length >= BOX_LABEL_LENGTH_THRESHOLD ? defaultInitials(teamName) : teamName;
+}
+
+// Renders one team box, matching the exact proportions confirmed from
+// real_16team_bracket_v2.svg: 190x28 box, seed badge r=10 at 14px from
+// left edge, logo badge r=11 at 6px from right edge, seed text 11px,
+// logo text 9px, both badges filled with the accent color, badge text
+// defaulting to the box fill color with a computed fallback if that
+// specific pairing would be unreadable (confirmed pattern: Ohio State/
+// North Dakota State use box-fill text; South Carolina falls back to
+// white because maroon-on-black fails the contrast threshold).
+//
+// Adds the thin bottom accent line from the written spec - not present
+// in the reference file, which appears to predate that addition. Reuses
+// the same accent color already computed rather than introducing a
+// third color, consistent with the spec's "pick two colors" framing.
+
+function escapeXml(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// Per-team logo nudge, for cases where a specific PNG's artwork isn't
+// centered within its own canvas (common cause: asymmetric padding, or
+// a wide/tall canvas that "slice" cropping cuts unevenly). scale <1
+// zooms out (shows more of the source, less cropping); dx/dy shift the
+// image within its circular badge, in the same pixel units as the
+// badge itself (positive dx = right, positive dy = down). Empty by
+// default - add an entry here for any team whose logo looks off, no
+// need to touch the actual image file.
+const LOGO_ADJUST = {
+  // SMU's source file isn't one mark - it's the "SMU" wordmark
+  // stacked directly above the running mustang, with a real ~20px gap
+  // between them (confirmed by scanning row-by-row alpha coverage:
+  // text spans rows 42-108, mustang spans rows 130-212, of a 256px
+  // canvas). The first attempt at cropping to just the mustang used
+  // dy:-5, which is nowhere near enough shift at that zoom level - the
+  // text's bottom edge was still bleeding into the top of the circle.
+  // Solved properly this time: dy chosen so the text's bottom edge
+  // (row 108) lands exactly at the circle's top boundary at this zoom,
+  // with scale bumped to 1.8 (from 1.43) so the mustang still fills a
+  // reasonable share of the circle once shifted - some cropping of the
+  // mustang's outermost hoof/tail tip is the tradeoff, which reads far
+  // better than a stray line of text at the top.
+  'SMU': { scale: 1.8, dx: 1, dy: -8 },
+  // These three measured meaningfully higher real clipping than the
+  // rest of the set (checked per-pixel against the circular crop, not
+  // just the bounding box): Tennessee 10.6% of its opaque pixels fall
+  // outside the circle, West Virginia 7.8%, Nebraska 7.0% - versus
+  // ~3.7% for Texas Tech, which reads fine. Scaled down just enough to
+  // land near that same acceptable baseline rather than over-shrinking.
+  'Tennessee': { scale: 0.92, dx: 0, dy: 0 },
+  'West Virginia': { scale: 0.94, dx: 0, dy: 0 },
+  'Nebraska': { scale: 0.95, dx: 0, dy: 0 },
+};
+function getLogoAdjust(teamName) {
+  return LOGO_ADJUST[teamName] || { scale: 1, dx: 0, dy: 0 };
+}
+
+// ghosted: lower opacity, no accent line, per the spec's "later rounds
+// not yet reached" styling.
+function renderTeamBox({ x, y, w, h, seed, teamName, colors, ghosted, logoDir, idPrefix = '' }) {
+  const scale = w / 190; // proportions confirmed at w=190; scale for other sizes
+  const boxH = h != null ? h : 28 * (w / 190);
+
+  const { fill, accent } = pickFillAndAccent(colors);
+  const nameTextColor = textColorFor(fill);
+  const badgeTextColor = getBadgeTextColor(accent, fill);
+
+  const seedBadgeR = 10 * scale;
+  const logoBadgeR = 11 * scale;
+  const seedBadgeCx = x + 14 * scale;
+  const logoBadgeCx = x + w - 26 * scale;
+  const badgeCy = y + boxH / 2;
+
+  const nameFontSize = 12 * scale;
+  const seedFontSize = 11 * scale;
+  const logoFontSize = 9 * scale;
+
+  const nameX = x + 32 * scale;
+  const displayName = getBoxLabel(teamName);
+  const badgeLabel = getBadgeLabel(teamName);
+
+  const opacity = ghosted ? 0.45 : 1;
+  const accentLineH = ghosted ? 0 : Math.max(2, 3 * scale);
+
+  let svg = `<g opacity="${opacity}">`;
+  svg += `<rect x="${x}" y="${y}" width="${w}" height="${boxH}" rx="${5 * scale}" fill="${fill}"/>`;
+  if (accentLineH > 0) {
+    svg += `<rect x="${x}" y="${y + boxH - accentLineH}" width="${w}" height="${accentLineH}" fill="${accent}"/>`;
+  }
+  svg += `<circle cx="${seedBadgeCx}" cy="${badgeCy}" r="${seedBadgeR}" fill="${accent}"/>`;
+  svg += `<text x="${seedBadgeCx}" y="${badgeCy}" font-size="${seedFontSize}" fill="${badgeTextColor}" text-anchor="middle" dominant-baseline="central" font-weight="700">${escapeXml(seed)}</text>`;
+  svg += `<text x="${nameX}" y="${badgeCy}" font-size="${nameFontSize}" fill="${nameTextColor}" dominant-baseline="central" font-weight="700">${escapeXml(displayName)}</text>`;
+
+  // Logo badge - the generated fallback (circle + initials) is always
+  // drawn first as the base layer. If logoDir is provided, an <image>
+  // renders directly on top at the same position/size, pointed at
+  // logos/{TeamName}.png. If that file doesn't exist, onerror hides the
+  // (empty) image element and the generated badge underneath shows
+  // through untouched - no file-existence check needed, the browser's
+  // own image-load failure handles the fallback natively. If the file
+  // DOES exist, onload additionally hides the initials text (but keeps
+  // the circle as a backdrop) - most real logo PNGs have transparent
+  // margins around the mark, which would otherwise let the fallback
+  // lettering show through behind/around the actual logo.
+  const badgeCircleId = `${idPrefix}badge-circle-${x}-${y}-${Math.round(logoBadgeCx)}`;
+  svg += `<circle id="${badgeCircleId}" cx="${logoBadgeCx}" cy="${badgeCy}" r="${logoBadgeR}" fill="${accent}"/>`;
+  const badgeTextId = `${idPrefix}badge-label-${x}-${y}-${Math.round(logoBadgeCx)}`;
+  svg += `<text id="${badgeTextId}" x="${logoBadgeCx}" y="${badgeCy}" font-size="${logoFontSize}" fill="${badgeTextColor}" text-anchor="middle" dominant-baseline="central" font-weight="700">${escapeXml(badgeLabel)}</text>`;
+  if (logoDir) {
+    const logoPath = `${logoDir}/${teamName}.png`;
+    const { scale: logoScale, dx: logoDx, dy: logoDy } = getLogoAdjust(teamName);
+    const d = logoBadgeR * 2 * logoScale;
+    const clipId = `${idPrefix}clip-${x}-${y}-${Math.round(logoBadgeCx)}`;
+    svg += `<clipPath id="${clipId}"><circle cx="${logoBadgeCx}" cy="${badgeCy}" r="${logoBadgeR}"/></clipPath>`;
+    // onload does two things now: hides the fallback text (as before),
+    // AND switches the circle behind it to a neutral white. The circle
+    // color was chosen for text contrast against the box, not for
+    // compatibility with real logo art - a team whose accent color
+    // happens to match its own logo's dominant color (confirmed: SMU
+    // is red-on-red) would have the real logo camouflage into its own
+    // backdrop and look "missing" even though it's rendering correctly.
+    // White is neutral against every team's colors and every logo.
+    svg += `<image href="${escapeXml(logoPath)}" x="${logoBadgeCx - d / 2 + logoDx * scale}" y="${badgeCy - d / 2 + logoDy * scale}" width="${d}" height="${d}" clip-path="url(#${clipId})" preserveAspectRatio="xMidYMid slice" onerror="this.style.display='none'" onload="var t=document.getElementById('${badgeTextId}'); if(t) t.style.display='none'; var c=document.getElementById('${badgeCircleId}'); if(c) c.setAttribute('fill','#ffffff');"/>`;
+  }
+  svg += `</g>`;
+  return svg;
+}
+
+// Multi-round bracket tree layout. Positioning formula verified against
+// real_16team_bracket_v2.svg by tracing every connector's exact
+// coordinates - NOT the naive "average of two immediate parents" the
+// written spec's short description suggests (that would shrink the
+// within-matchup gap every round, which the reference never does - it
+// stays a constant 32px at every round). The real formula: each round's
+// matchup pair is centered on the average of its entire feeding
+// subtree's span, recursively, while always maintaining the same fixed
+// half-gap offset for the pair itself.
+
+// BRACKET_SCALE multiplies every size below together, so proportions
+// stay identical to the original 190x28-box design (renderTeamBox's
+// own internal `scale = w/190` picks this up automatically for badge
+// radii, font sizes, etc.) - just bigger overall. Safe to push this up
+// freely since the container already scrolls horizontally; nothing
+// needs to fit in view without scrolling.
+const BRACKET_SCALE = 1.35;
+const WITHIN_GAME_GAP = 32 * BRACKET_SCALE;
+const BETWEEN_GAME_GAP = 63 * BRACKET_SCALE;
+const HALF_GAP = WITHIN_GAME_GAP / 2;
+const COLUMN_GAP = 40 * BRACKET_SCALE;
+const BOX_W = 190 * BRACKET_SCALE;
+const BOX_H = 28 * BRACKET_SCALE;
+
+function computeRound1Positions(count, startY) {
+  const positions = [];
+  let y = startY;
+  for (let i = 0; i < count; i++) {
+    positions.push(y);
+    y += i % 2 === 0 ? WITHIN_GAME_GAP : BETWEEN_GAME_GAP;
+  }
+  return positions;
+}
+
+function computeNextRoundPositions(prevPositions) {
+  const matchupCenters = [];
+  for (let i = 0; i < prevPositions.length; i += 2) {
+    matchupCenters.push((prevPositions[i] + prevPositions[i + 1]) / 2);
+  }
+  const next = [];
+  for (let i = 0; i < matchupCenters.length; i += 2) {
+    const avg = (matchupCenters[i] + matchupCenters[i + 1]) / 2;
+    next.push(avg - HALF_GAP, avg + HALF_GAP);
+  }
+  return next;
+}
+
+// 12-team specific: the bye round doesn't halve like every other round
+// transition - Quarterfinal box count equals Round 1 box count (8=8),
+// since both the TBD slot AND the already-known bye team get their own
+// box, not just the eventual winner. Each Round 1 game's own center
+// directly produces its Quarterfinal pair with no cross-game averaging;
+// normal halving (computeNextRoundPositions) resumes from Quarterfinal
+// onward.
+function computeByeRoundPositions(round1Positions) {
+  const next = [];
+  for (let i = 0; i < round1Positions.length; i += 2) {
+    const center = (round1Positions[i] + round1Positions[i + 1]) / 2;
+    next.push(center - HALF_GAP, center + HALF_GAP);
+  }
+  return next;
+}
+
+function renderConnector(x1, y1, x2, y2) {
+  const bendX = x1 + COLUMN_GAP / 2;
+  return `<path d="M${x1},${y1} H${bendX} V${y2} H${x2}" fill="none" stroke="#3a3a44" stroke-width="1.2"/>`;
+}
+
+function ghostOpacity(roundsAhead) {
+  if (roundsAhead <= 0) return 1;
+  return Math.max(0.4, 0.7 - 0.1 * roundsAhead);
+}
+
+// Champion banner - now matches the winning team's own colors, same
+// fill/accent scheme as a regular box, rather than a fixed dark/gold
+// look independent of who actually won. Badge stays on a white
+// backdrop once a real logo loads (same camouflage fix as every other
+// badge - see renderTeamBox's onload handler).
+function renderChampionBanner({ x, y, w, teamName, year, colors, logoDir, idPrefix = '' }) {
+  const h = 140 * BRACKET_SCALE;
+  const { fill, accent } = pickFillAndAccent(colors);
+  const nameTextColor = textColorFor(fill);
+  const badgeTextColor = textColorFor(fill);
+  const badgeLabel = getBadgeLabel(teamName);
+  const cx = x + w / 2;
+  const badgeCy = y + 50 * BRACKET_SCALE;
+  const badgeR = 30 * BRACKET_SCALE;
+
+  let svg = `<g>`;
+  svg += `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="8" fill="${fill}" stroke="${accent}" stroke-width="${5 * BRACKET_SCALE}"/>`;
+  const champBadgeCircleId = `${idPrefix}champ-badge-circle-${x}-${y}`;
+  svg += `<circle id="${champBadgeCircleId}" cx="${cx}" cy="${badgeCy}" r="${badgeR}" fill="${accent}" stroke="${accent}" stroke-width="1.5"/>`;
+  const champBadgeTextId = `${idPrefix}champ-badge-label-${x}-${y}`;
+  svg += `<text id="${champBadgeTextId}" x="${cx}" y="${badgeCy}" font-size="${14 * BRACKET_SCALE}" fill="${getBadgeTextColor(accent, fill)}" text-anchor="middle" dominant-baseline="central" font-weight="700">${escapeXml(badgeLabel)}</text>`;
+  if (logoDir) {
+    const logoPath = `${logoDir}/${teamName}.png`;
+    const { scale: logoScale, dx: logoDx, dy: logoDy } = getLogoAdjust(teamName);
+    const d = badgeR * 2 * logoScale;
+    const clipId = `${idPrefix}clip-champ-${x}-${y}`;
+    svg += `<clipPath id="${clipId}"><circle cx="${cx}" cy="${badgeCy}" r="${badgeR}"/></clipPath>`;
+    svg += `<image href="${escapeXml(logoPath)}" x="${cx - d / 2 + logoDx * BRACKET_SCALE}" y="${badgeCy - d / 2 + logoDy * BRACKET_SCALE}" width="${d}" height="${d}" clip-path="url(#${clipId})" preserveAspectRatio="xMidYMid slice" onerror="this.style.display='none'" onload="var t=document.getElementById('${champBadgeTextId}'); if(t) t.style.display='none'; var c=document.getElementById('${champBadgeCircleId}'); if(c) c.setAttribute('fill','#ffffff');"/>`;
+  }
+  svg += `<text x="${cx}" y="${y + 103 * BRACKET_SCALE}" font-size="${16 * BRACKET_SCALE}" fill="${nameTextColor}" text-anchor="middle" font-weight="700">${escapeXml(teamName)}</text>`;
+  svg += `<text x="${cx}" y="${y + 122 * BRACKET_SCALE}" font-size="${10 * BRACKET_SCALE}" letter-spacing="1" fill="${nameTextColor}" text-anchor="middle" opacity="0.85">${escapeXml(year)} NATIONAL CHAMPIONS</text>`;
+  svg += `</g>`;
+  return svg;
+}
+
+// rounds: array of arrays, one per round, each entry either a real team
+// name (string) or null (not yet determined - renders as "TBD"
+// ghosted). currentRoundIndex: the last round with confirmed results;
+// anything after that ghosts, with opacity graduated by distance.
+// champion: team name if decided, null otherwise - renders an explicit
+// placeholder state rather than nothing at all, per spec.
+function renderBracketTree({ rounds, startX = 20, startY = 45, currentRoundIndex = 0, champion = null, year = '', logoDir = null, byeRoundAfterIndex = null, idPrefix = '' }) {
+  let svg = '';
+  let positions = computeRound1Positions(rounds[0].length, startY + BOX_H / 2);
+  const allPositions = [positions];
+
+  // byeRoundAfterIndex marks the ONE transition (12-team only, r=0->1)
+  // that doesn't halve: Quarterfinal box count equals Round 1 box count
+  // (8=8), since the bye team gets its own box alongside the TBD slot.
+  // computeByeRoundPositions preserves each Round 1 game's own pair
+  // directly, with no cross-game averaging - using the generic halving
+  // transition here would produce half as many positions as boxes,
+  // which is exactly what was causing every following box to render at
+  // a garbage/wrapped-around position.
+  for (let r = 1; r < rounds.length; r++) {
+    positions = (byeRoundAfterIndex !== null && r - 1 === byeRoundAfterIndex)
+      ? computeByeRoundPositions(positions)
+      : computeNextRoundPositions(positions);
+    allPositions.push(positions);
+  }
+
+  for (let r = 0; r < rounds.length; r++) {
+    const x = startX + r * (BOX_W + COLUMN_GAP);
+    const roundsAhead = r - currentRoundIndex;
+    const ghosted = roundsAhead > 0;
+    const opacity = ghostOpacity(roundsAhead);
+
+    for (let i = 0; i < rounds[r].length; i++) {
+      const entry = rounds[r][i];
+      const teamName = entry && entry.name;
+      const seedNum = entry && entry.seed;
+      const yCenter = allPositions[r][i];
+      const y = yCenter - BOX_H / 2;
+
+      if (teamName) {
+        svg += renderTeamBox({
+          x, y, w: BOX_W, h: BOX_H,
+          seed: seedNum != null ? seedNum : '',
+          teamName,
+          colors: TEAM_COLORS[teamName] || ['#4a4a52', '#8a8a92'],
+          ghosted,
+          logoDir,
+          idPrefix,
+        });
+      } else {
+        svg += `<g opacity="${opacity}"><rect x="${x}" y="${y}" width="${BOX_W}" height="${BOX_H}" rx="5" fill="#221c10" stroke="#4a3a1a"/><text x="${x + BOX_W / 2}" y="${yCenter}" font-size="12" fill="#8a8a92" text-anchor="middle" dominant-baseline="central">TBD</text></g>`;
+      }
+    }
+
+    if (r < rounds.length - 1) {
+      const nextX = x + BOX_W + COLUMN_GAP;
+      if (byeRoundAfterIndex !== null && r === byeRoundAfterIndex) {
+        // Each Round 1 game's two teams (boxes i, i+1) both feed into
+        // the TBD slot of their Quarterfinal pair - never into the bye
+        // box (index i, per the [bye, TBD] pair order rounds[1] is
+        // built in). The bye box gets no connector at all; it has no
+        // Round 1 feeder.
+        for (let i = 0; i < allPositions[r].length; i += 2) {
+          const nextY = allPositions[r + 1][i + 1];
+          svg += renderConnector(x + BOX_W, allPositions[r][i], nextX, nextY);
+          svg += renderConnector(x + BOX_W, allPositions[r][i + 1], nextX, nextY);
+        }
+      } else {
+        for (let i = 0; i < allPositions[r].length; i += 2) {
+          const nextY = allPositions[r + 1][i / 2];
+          svg += renderConnector(x + BOX_W, allPositions[r][i], nextX, nextY);
+          svg += renderConnector(x + BOX_W, allPositions[r][i + 1], nextX, nextY);
+        }
+      }
+    }
+  }
+
+  const bannerX = startX + rounds.length * (BOX_W + COLUMN_GAP);
+  const lastRoundCenter = (allPositions[rounds.length - 1][0] + allPositions[rounds.length - 1][1]) / 2;
+  const bannerH = 140 * BRACKET_SCALE;
+  const bannerY = lastRoundCenter - bannerH / 2;
+  if (champion) {
+    svg += renderChampionBanner({ x: bannerX, y: bannerY, w: BOX_W, teamName: champion, year, colors: TEAM_COLORS[champion] || ['#4a4a52', '#8a8a92'], logoDir, idPrefix });
+  } else {
+    svg += `<g opacity="0.4"><rect x="${bannerX}" y="${bannerY}" width="${BOX_W}" height="${bannerH}" rx="8" fill="#221c10" stroke="#4a3a1a" stroke-width="1.5"/><text x="${bannerX + BOX_W / 2}" y="${bannerY + bannerH / 2}" font-size="12" fill="#8a8a92" text-anchor="middle" dominant-baseline="central">Champion TBD</text></g>`;
+  }
+
+  return svg;
+}
+
+// --- end Bracket View code ---
+
 let inputPath = null;
 let teamNames = [];
 let bracketSize = null;
@@ -748,6 +1430,7 @@ function switchTab(n) {
   document.querySelectorAll('.tabbtn').forEach(b => b.classList.remove('active'));
   document.getElementById('tab' + n).classList.add('active');
   document.querySelector(`.tabbtn[data-tab="${n}"]`).classList.add('active');
+  renderStepGuide();
 }
 
 document.querySelectorAll('.tabbtn').forEach(btn => {
@@ -759,6 +1442,100 @@ document.querySelectorAll('.tabbtn').forEach(btn => {
 });
 
 // --- Tab 1: Format ---
+
+// Full procedure per bracket size, tool-UI steps and real in-game
+// timing interleaved in the actual order you'd do them. tabs: which
+// tab number(s) this step corresponds to inside the tool, so the
+// current tab can be highlighted live; null means "this happens
+// outside the tool, in the game itself." Kept as one ordered list per
+// size rather than trying to show only "the current step" in
+// isolation, since a couple of these steps (loading the output save,
+// simming) aren't tied to any tab at all and are easy to lose track of
+// if they're not shown alongside the tool steps around them.
+const GUIDE_STEPS = {
+  2: [
+    { tabs: [2], text: 'Pick "2 Teams" as your format (done).' },
+    { tabs: [3], text: 'Change any BCS metrics you\'d like in the Ranking settings, then set your conference autobids (if you have any) on the Autobids tab.' },
+    { tabs: [3, 4], text: 'Click "Next: Build Bracket" to seed your 2 Championship participants.' },
+    { tabs: null, text: 'Sim through Bowl Weeks 1, 2, and 3 first (Rounds 1, QF, SF) - do this in-game, before running the tool.' },
+    { tabs: [4], text: 'Come back here at Bowl Week 4 and hit Apply - it writes your 2 teams directly into the Championship slot.' },
+    { tabs: [5, 6], text: 'Check Bracket View to confirm it looks right, then load the output save and play the Championship.' },
+  ],
+  4: [
+    { tabs: [2], text: 'Pick "4 Teams" as your format (done).' },
+    { tabs: [3], text: 'Change any BCS metrics you\'d like in the Ranking settings, then set your conference autobids (if you have any) on the Autobids tab.' },
+    { tabs: [3, 4], text: 'Click "Next: Build Bracket" to seed your 4 teams.' },
+    { tabs: null, text: 'Sim through Bowl Weeks 1 and 2 first (Rounds 1 and QF) - do this in-game, before running the tool.' },
+    { tabs: [4], text: 'Come back here at Bowl Week 3 and hit Apply - it writes your 4 teams into the 2 Semifinal slots.' },
+    { tabs: null, text: 'Load the output save and continue - the Championship advances automatically, no need to come back.' },
+    { tabs: [5, 6], text: 'Check Bracket View any time - you can load the save during Semis or the Final to watch it fill in, or just skip straight to loading your end-of-season recap save and it\'ll show the whole completed bracket at once.' },
+  ],
+  8: [
+    { tabs: [2], text: 'Pick "8 Teams" as your format (done).' },
+    { tabs: [3], text: 'Change any BCS metrics you\'d like in the Ranking settings, then set your conference autobids (if you have any) on the Autobids tab.' },
+    { tabs: [3, 4], text: 'Click "Next: Build Bracket" to seed your 8 teams.' },
+    { tabs: null, text: 'Sim through Bowl Week 1 first (Round 1) - do this in-game, before running the tool.' },
+    { tabs: [4], text: 'Come back here at Bowl Week 2 and hit Apply - it writes your 8 teams into the 4 Quarterfinal slots (the NY6 bowls: Sugar, Fiesta, Rose, Peach).' },
+    { tabs: null, text: 'Load the output save and continue - Semis and Championship advance automatically, no need to come back.' },
+    { tabs: [5, 6], text: 'Check Bracket View any time - you can load the save during Semis or the Final to watch it fill in, or just skip straight to loading your end-of-season recap save and it\'ll show the whole completed bracket at once.' },
+  ],
+  12: [
+    { tabs: [2], text: 'Pick "12 Teams" as your format (done).' },
+    { tabs: [3], text: 'Change any BCS metrics you\'d like in the Ranking settings, then set your conference autobids (if you have any) on the Autobids tab.' },
+    { tabs: [3, 4], text: 'Click "Next: Build Bracket" to seed your 12 teams.' },
+    { tabs: [4], maxApplied: 0, text: 'Run this tool at Bowl Week 1, before any games are played - seeds 1-4 get byes into the Quarterfinals, seeds 5-12 play Round 1 (5 hosts 12, 6 hosts 11, 7v10, 8v9).' },
+    { tabs: null, text: 'Load the output save and sim Round 1.' },
+    { tabs: [4], minApplied: 0, maxApplied: 1, text: 'Once Round 1 is actually played, come back to this tab\'s "Round 2" section to set the Quarterfinals correctly - the game\'s own native auto-advance does NOT match the real CFP convention (confirmed via actual gameplay), so this writes 8/9\'s winner vs seed 1, 7/10\'s winner vs seed 2, 6/11\'s winner vs seed 3, 5/12\'s winner vs seed 4 directly.' },
+    { tabs: null, text: 'Load that output save and continue - Semifinals and Championship advance automatically from there.' },
+    { tabs: [5, 6], text: 'Check Bracket View any time - you can load the save during Semis or the Final to watch it fill in, or just skip straight to loading your end-of-season recap save and it\'ll show the whole completed bracket at once.' },
+  ],
+  16: [
+    { tabs: [2], text: 'Pick "16 Teams" as your format (done).' },
+    { tabs: [3], text: 'Change any BCS metrics you\'d like in the Ranking settings, then set your conference autobids (if you have any) on the Autobids tab.' },
+    { tabs: [3, 4], text: 'Click "Next: Build Bracket" to seed your 16 teams.' },
+    { tabs: [4], maxApplied: 0, text: 'Run this tool at Bowl Week 1, before any games are played - Round 1 writes into the 4 native CFP slots plus 4 repurposed bowls (Boca Raton, New Orleans, Cure, Gasparilla).' },
+    { tabs: null, text: 'Load the output save and sim Round 1.' },
+    { tabs: [4], minApplied: 0, maxApplied: 1, text: 'Once Round 1 is actually played, come back to this tab\'s "Round 2" section to reseed the Quarterfinals - the native First Round to Quarterfinal chain only auto-advances the true CFP slots, not the 4 repurposed bowls.' },
+    { tabs: null, text: 'Load that output save and continue - Semis and Championship advance automatically from there.' },
+    { tabs: [5, 6], text: 'Check Bracket View any time - you can load the save during Semis or the Final to watch it fill in, or just skip straight to loading your end-of-season recap save and it\'ll show the whole completed bracket at once.' },
+  ],
+};
+
+function renderStepGuide() {
+  const panel = document.getElementById('stepGuidePanel');
+  if (!bracketSize || !GUIDE_STEPS[bracketSize]) {
+    panel.innerHTML = '<p class="hint" style="margin:0;">Pick a bracket format below to see your step-by-step guide.</p>';
+    return;
+  }
+  const currentTab = parseInt(document.querySelector('.tabbtn.active')?.dataset.tab, 10);
+  const steps = GUIDE_STEPS[bracketSize];
+  const itemsHtml = steps.map(step => {
+    const tabMatch = step.tabs && step.tabs.includes(currentTab);
+    // minApplied/maxApplied let a step opt into gating on appliedRoundIndex
+    // (real session state: -1 = nothing applied yet, 0 = Round 1 applied,
+    // 1 = Round 2 applied too) on top of the tab match - needed for
+    // 16-team specifically, where both the initial Apply AND the later
+    // Round 2 reseed live on the same "Bracket" tab. Without this, both
+    // steps would light up together just from being on that tab, even
+    // though the Round 2 step doesn't actually make sense yet until
+    // Round 1 has actually been applied.
+    const meetsMin = step.minApplied === undefined || appliedRoundIndex >= step.minApplied;
+    const meetsMax = step.maxApplied === undefined || appliedRoundIndex < step.maxApplied;
+    const isCurrent = tabMatch && meetsMin && meetsMax;
+    const style = isCurrent ? 'color:var(--gold); font-weight:600;' : 'color:var(--text-dim);';
+    const marker = isCurrent ? '&#9654; ' : '';
+    return `<li style="${style}; margin-bottom:6px;">${marker}${step.text}</li>`;
+  }).join('');
+  panel.innerHTML = `
+    <h3 style="margin:0 0 8px; font-size:13px; text-transform:uppercase; letter-spacing:0.5px; color:var(--gold);">${bracketSize}-Team Bracket - Step by Step</h3>
+    <ol style="margin:0 0 12px; padding-left:20px;">${itemsHtml}</ol>
+    <div style="background:rgba(217,178,60,0.12); border:1.5px solid var(--gold); border-radius:6px; padding:10px 12px; display:flex; gap:10px; align-items:flex-start;">
+      <span style="font-size:16px; line-height:1;">&#9888;&#65039;</span>
+      <p style="margin:0; font-size:13px; color:var(--text);"><b>Wrong matchup showing in-game after an Apply?</b> Don't assume something's broken - this is a known issue. Check the <b>Coach Retirement Guide</b> (in this folder) for the fix before doing anything else.</p>
+    </div>
+  `;
+}
+
 document.querySelectorAll('.formatCard').forEach(card => {
   card.addEventListener('click', () => {
     if (card.classList.contains('disabled')) return;
@@ -766,15 +1543,8 @@ document.querySelectorAll('.formatCard').forEach(card => {
     card.classList.add('selected');
     bracketSize = parseInt(card.dataset.size, 10);
     document.getElementById('btnToTab3').disabled = false;
-
-    const hints = {
-      2: 'Sim through Bowl Weeks 1, 2, and 3 first (Rounds 1, QF, and SF). Use this tool at Bowl Week 4 — it writes your 2 teams directly into the Championship slot.',
-      4: 'Sim through Bowl Weeks 1 and 2 first (Rounds 1 and QF). Use this tool at Bowl Week 3 — it writes your 4 teams into the 2 Semifinal slots. The Championship advances automatically.',
-      8: 'Sim through Bowl Week 1 first (Round 1). Use this tool at Bowl Week 2 — it writes your 8 teams into the 4 Quarterfinal slots (the NY6 bowls: Sugar, Fiesta, Rose, Peach). Semis and Championship advance automatically.',
-      12: 'Use this tool at Bowl Week 1 (before any games are played). Seeds 1-4 get byes into the QFs. Seeds 5-12 play Round 1 (5 hosts 12, 6 hosts 11, 7v10, 8v9). The game re-seeds everything automatically after Round 1.',
-      16: 'Use this tool at Bowl Week 1 (before any games are played). Round 1 uses the 4 native CFP slots plus 4 repurposed bowls (Boca Raton, New Orleans, Cure, Gasparilla). After simming Round 1, come back to reseed the Quarterfinals.',
-    };
-    document.getElementById('formatHint').textContent = hints[bracketSize] || '';
+    document.getElementById('formatHint').textContent = '';
+    renderStepGuide();
   });
 });
 
@@ -794,6 +1564,7 @@ function getBcsInfo(teamName) {
 }
 
 let showAllRankings = false;
+let hasVisitedBracketApp = false;
 
 // --- App switcher (Conferences vs Bracket Tool) ---
 document.querySelectorAll('.appSwitchBtn').forEach(btn => {
@@ -802,8 +1573,52 @@ document.querySelectorAll('.appSwitchBtn').forEach(btn => {
     document.querySelectorAll('.appPanel').forEach(p => p.classList.remove('active'));
     btn.classList.add('active');
     document.getElementById(`app-${btn.dataset.app}`).classList.add('active');
+    if (btn.dataset.app === 'conferences') renderConferencesGuide();
+    if (btn.dataset.app === 'bracket') hasVisitedBracketApp = true;
   });
 });
+
+// Live step guide for the Conferences tool - simpler than the Bracket
+// Tool's, since there's no multi-tab wizard here. Step 3 (conference
+// detection) genuinely is a normal step for most people on a first
+// setup - most dynasties don't match this tool's default realignment
+// out of the box - but becomes unnecessary on repeat use once
+// teamConferenceOverrides.json actually exists, so it's tracked as a
+// real done/not-done step rather than a permanent "optional" footnote.
+let conferenceOverridesExist = false;
+
+async function checkConferenceOverridesExist() {
+  const result = await window.api.checkConferenceOverridesExist();
+  conferenceOverridesExist = result.success && result.exists;
+}
+
+function renderConferencesGuide() {
+  const panel = document.getElementById('conferencesGuidePanel');
+  const step1Done = !!inputPath;
+  const step2Done = step1Done && bcsRankings.length > 0;
+  const step3Done = conferenceOverridesExist;
+  const steps = [
+    { done: step1Done, text: 'Choose your save file at the top of the page.' },
+    { done: step2Done, text: 'Standings and conference champions populate automatically below - nothing else to click.' },
+    {
+      done: step3Done,
+      text: step3Done
+        ? 'Conference realignment already set up (teamConferenceOverrides.json exists) - only revisit this if you ever change your conference alignment.'
+        : 'First-time setup for most dynasties: use "Detect conferences from this save\'s schedule" below, review the result (it\'s a starting point, not a guarantee), and save it. One-time - you likely won\'t need to touch this again after.',
+    },
+    { done: hasVisitedBracketApp, text: 'Move over to the Bracket tab.' },
+  ];
+  const currentIndex = steps.findIndex(s => !s.done);
+  const itemsHtml = steps.map((s, i) => {
+    const isCurrent = i === currentIndex;
+    const style = isCurrent ? 'color:var(--gold); font-weight:600;' : 'color:var(--text-dim);';
+    const marker = isCurrent ? '&#9654; ' : (s.done ? '&#10003; ' : '');
+    return `<li style="${style}; margin-bottom:6px;">${marker}${s.text}</li>`;
+  }).join('');
+  panel.innerHTML = `<ol style="margin:0; padding-left:20px;">${itemsHtml}</ol>`;
+}
+
+checkConferenceOverridesExist().then(renderConferencesGuide);
 
 // --- Conferences tool: standings grouped by conference, with a crown for the champion ---
 function renderStandings() {
@@ -1355,6 +2170,10 @@ document.getElementById('btnSaveDetectedConferences').addEventListener('click', 
   statusEl.textContent = result.success
     ? 'Saved to teamConferenceOverrides.json. Restart the app for it to take effect.'
     : `Failed: ${result.error}`;
+  if (result.success) {
+    conferenceOverridesExist = true;
+    renderConferencesGuide();
+  }
 });
 
 function renderConferenceToggleRows() {
@@ -1501,12 +2320,337 @@ function rebuildAndSeedAutobids() {
 document.getElementById('btnToTab4').addEventListener('click', () => {
   rebuildAndSeedAutobids();
   document.querySelector('.tabbtn[data-tab="4"]').disabled = false;
+  document.querySelector('.tabbtn[data-tab="5"]').disabled = false;
   buildBracketTab();
   switchTab(4);
 });
 document.getElementById('btnToTab3b').addEventListener('click', () => switchTab(3));
 
-// --- Tab 3: Bracket ---
+// --- Tab 5: Bracket View (tree) ---
+// Tracks which rounds the tool has actually applied *in this session* -
+// this is the reliable ghosting signal, not inference from the save's
+// raw content (see the get-bracket-state handler's own comment for why
+// that would just be guessing). Starts at -1 (nothing applied yet,
+// everything ghosted) and increments each time an Apply button
+// succeeds elsewhere in the app.
+let appliedRoundIndex = -1;
+let lastLoadedBracketState = null;
+let teamColorsLoaded = false;
+let suggestedBracketYear = null;
+
+async function ensureTeamColorsLoaded() {
+  if (teamColorsLoaded) return;
+  TEAM_COLORS = await window.api.getTeamColors();
+  teamColorsLoaded = true;
+}
+
+// Standard bracket display order, applied purely to how boxes are
+// drawn (never to computeMatchups(), config.round1/round2, or how
+// get-bracket-state reads records - all of those must stay in native
+// seed order to match the real save-file record layout).
+//
+// 16-team: pairs that share a Quarterfinal parent (1v16 with 8v9, 5v12
+// with 4v13, 6v11 with 3v14, 7v10 with 2v15) rather than the flat
+// seed-sequential order the games are actually written in. Safe here
+// because Round 2 is a manual reseed done later against actual Round 1
+// results - no fixed native pairing to misrepresent.
+//
+// 8-team: pairs that share a Semifinal parent (1v8 with 4v5, 3v6 with
+// 2v7), confirmed by Alex directly (BYU-LSU/2v7 belongs at the bottom).
+// Unlike 16-team, the Semifinal here IS a fixed native advance (no
+// manual reseed step exists for 8-team) - Alex's correction is trusted
+// as the real observed behavior, but if that ever turns out wrong,
+// this is the one line to revisit.
+//
+// NOT applied to 12-team: its actual native wiring was already byte-
+// confirmed to be simple sequential index matching (5v12->seed1, not
+// 8v9->seed1 as "normal" bracket seeding would suggest) - reordering
+// its display would show a matchup structure that doesn't match what
+// the game actually does.
+const BRACKET_DISPLAY_ORDER = {
+  16: [0, 7, 4, 3, 5, 2, 6, 1],
+  8: [0, 3, 2, 1],
+};
+function reorderRound1ForBracketDisplay(flatTeams, order) {
+  const out = [];
+  order.forEach(gameIndex => {
+    out.push(flatTeams[gameIndex * 2], flatTeams[gameIndex * 2 + 1]);
+  });
+  return out;
+}
+
+// Shared by both the live Bracket View and the History tab, so a saved
+// year renders through the exact same code as a live save - no second
+// rendering path to keep in sync. currentRoundIndex controls ghosting;
+// history playback passes rounds.length (nothing ahead of "now" for a
+// completed season, so nothing should ghost).
+function buildBracketSvgMarkup({ rounds: rawRounds, champion, bracketSizeForOrder, currentRoundIndex, year, idPrefix }) {
+  const rounds = rawRounds.map(r => r.slice());
+  const order = BRACKET_DISPLAY_ORDER[bracketSizeForOrder];
+  if (order) {
+    rounds[0] = reorderRound1ForBracketDisplay(rounds[0], order);
+  }
+  const bannerH = 140 * BRACKET_SCALE;
+
+  // The champion banner centers on the tree's vertical midpoint (see
+  // renderBracketTree's lastRoundCenter), and for a small bracket
+  // (2/4-team especially) that banner is taller than the tree itself -
+  // centering it there can push its TOP edge above y=0, off-canvas and
+  // clipped by the SVG viewport (confirmed: 2-team came out to
+  // bannerY=-9 with the previous fixed startY=45). Rather than pick a
+  // bigger fixed startY that wastes space on large brackets, compute
+  // how far negative the banner would go at the baseline startY, and
+  // push the whole tree down by exactly that much (plus a little
+  // breathing room) - only when actually needed.
+  const baselineStartY = 45;
+  const baselinePositions = computeRound1Positions(rounds[0].length, baselineStartY + BOX_H / 2);
+  const baselineMidpoint = (Math.min(...baselinePositions) + Math.max(...baselinePositions)) / 2;
+  const baselineBannerY = baselineMidpoint - bannerH / 2;
+  const extraTopMargin = Math.max(0, -baselineBannerY + 10);
+  const startY = baselineStartY + extraTopMargin;
+
+  const round1Positions = computeRound1Positions(rounds[0].length, startY + BOX_H / 2);
+  // Bottom edge needs the same treatment - the banner can still extend
+  // past the round1-box-based height floor on a small bracket even
+  // after the top-margin fix above.
+  const treeMidpoint = (Math.min(...round1Positions) + Math.max(...round1Positions)) / 2;
+  const bannerBottom = treeMidpoint + bannerH / 2 + 30;
+  const totalHeight = Math.max(Math.max(...round1Positions) + BOX_H / 2 + 30, bannerBottom);
+  const totalWidth = 20 + (rounds.length + 1) * (BOX_W + COLUMN_GAP) + 40;
+
+  // appliedRoundIndex only tracks Apply clicks made THIS session - it
+  // knows nothing about a save opened via the decoupled "load a
+  // different save to view" picker, or a save reopened in a fresh
+  // session, or a History entry. Since get-bracket-state's completion
+  // gating already guarantees a round only shows real (non-null) team
+  // names once its feeding games are actually decided - never leftover
+  // native default data - it's now safe to also infer ghosting
+  // straight from the data itself: the highest round where every entry
+  // is real is a real completion signal, not a guess. Take whichever
+  // of the two signals is further along.
+  let dataCompleteIndex = -1;
+  for (let r = 0; r < rounds.length; r++) {
+    if (rounds[r].length && rounds[r].every(entry => entry && entry.name)) {
+      dataCompleteIndex = r;
+    }
+  }
+  const effectiveRoundIndex = Math.max(currentRoundIndex, dataCompleteIndex);
+
+  const svgContent = renderBracketTree({
+    rounds,
+    startY,
+    currentRoundIndex: effectiveRoundIndex,
+    champion: champion || null,
+    year: String(year),
+    byeRoundAfterIndex: bracketSizeForOrder === 12 ? 0 : null,
+    logoDir: 'logos',
+    idPrefix,
+  });
+
+  // viewBox (not just width/height attributes) lets the zoom controls
+  // resize this element freely via CSS width alone, with the browser
+  // handling the scale - no separate transform math needed, and no
+  // distortion since the aspect ratio is preserved automatically.
+  return `<svg viewBox="0 0 ${totalWidth} ${totalHeight}" width="${totalWidth}" height="${totalHeight}" xmlns="http://www.w3.org/2000/svg" style="font-family: Arial, sans-serif;">${svgContent}</svg>`;
+}
+
+async function computeSuggestedYear(realSeasonYear) {
+  // Confirmed directly against a live save (SeasonYear=4, in-game 2030):
+  // get-bracket-state now reads this straight from the SeasonGame table
+  // and does the 2026+SeasonYear math itself, so this is real ground
+  // truth, not a guess - prefer it whenever it's available. Falls back
+  // to "last saved year + 1" only if that read somehow comes back null
+  // (e.g. a save with no readable records at all).
+  if (typeof realSeasonYear === 'number') return realSeasonYear;
+  const hist = await window.api.getBracketHistory();
+  if (hist.success && hist.entries.length) {
+    return Math.max(...hist.entries.map(e => e.year)) + 1;
+  }
+  return 2026;
+}
+
+// Zoom controls - scales the rendered SVG's CSS width only, relying on
+// the viewBox already set in buildBracketSvgMarkup to keep the aspect
+// ratio correct (height derives automatically, no distortion). Lets
+// someone shrink a big 16-team bracket down to fit their whole screen
+// for a screenshot, or blow up a small one for detail - independent of
+// their actual screen size, since it's a size relative to the SVG's
+// own natural pixel dimensions, not the window.
+const zoomLevels = { bracketViewContainer: 100, bracketHistoryContainer: 100 };
+function applyZoom(containerId) {
+  const svg = document.querySelector(`#${containerId} svg`);
+  if (!svg) return;
+  const naturalWidth = parseFloat(svg.getAttribute('width'));
+  svg.style.width = (naturalWidth * zoomLevels[containerId] / 100) + 'px';
+  svg.style.height = 'auto';
+}
+
+document.getElementById('bracketViewZoom').addEventListener('input', (e) => {
+  zoomLevels.bracketViewContainer = parseInt(e.target.value, 10);
+  document.getElementById('bracketViewZoomLabel').textContent = `${e.target.value}%`;
+  applyZoom('bracketViewContainer');
+});
+
+document.getElementById('bracketHistoryZoom').addEventListener('input', (e) => {
+  zoomLevels.bracketHistoryContainer = parseInt(e.target.value, 10);
+  document.getElementById('bracketHistoryZoomLabel').textContent = `${e.target.value}%`;
+  applyZoom('bracketHistoryContainer');
+});
+
+function renderBracketViewTree(result) {
+  const container = document.getElementById('bracketViewContainer');
+  container.innerHTML = buildBracketSvgMarkup({
+    rounds: result.rounds,
+    champion: result.champion,
+    bracketSizeForOrder: bracketSize,
+    currentRoundIndex: appliedRoundIndex,
+    year: suggestedBracketYear || '',
+    idPrefix: 'live-',
+  });
+  applyZoom('bracketViewContainer');
+
+  const saveRow = document.getElementById('saveBracketRow');
+  if (result.champion) {
+    saveRow.style.display = 'flex';
+    document.getElementById('saveBracketYear').value = suggestedBracketYear;
+    document.getElementById('saveBracketStatus').textContent = '';
+  } else {
+    saveRow.style.display = 'none';
+  }
+}
+
+// Overrides the shared wizard inputPath for the Bracket View
+// specifically, when set. Exists because during the later rounds
+// (especially 16-team's separate Round 2 pass) the file you actually
+// want to LOOK AT is often a fresh output save that hasn't been
+// re-picked at the top of the page - re-picking it there would also
+// change what the rest of the wizard is pointed at, which isn't
+// necessarily what's wanted. null means "just use inputPath, same as
+// before."
+let bracketViewInputPath = null;
+
+function updateBracketViewFilePathDisplay() {
+  const el = document.getElementById('bracketViewFilePathDisplay');
+  el.textContent = bracketViewInputPath
+    ? `Currently viewing: ${bracketViewInputPath}`
+    : 'Currently viewing the save loaded at the top of the page.';
+}
+
+document.getElementById('btnPickBracketViewInput').addEventListener('click', async () => {
+  const path = await window.api.pickInputFile();
+  if (path) {
+    bracketViewInputPath = path;
+    updateBracketViewFilePathDisplay();
+    refreshBracketView();
+  }
+});
+
+async function refreshBracketView() {
+  await ensureTeamColorsLoaded();
+  const container = document.getElementById('bracketViewContainer');
+  const activePath = bracketViewInputPath || inputPath;
+  updateBracketViewFilePathDisplay();
+  document.getElementById('bracketViewSelectedFormatLabel').textContent = bracketSize ? `${bracketSize} Teams` : 'no format picked yet';
+  if (!activePath || !bracketSize) {
+    container.innerHTML = '<p class="hint">Load a save and pick a bracket size first.</p>';
+    document.getElementById('saveBracketRow').style.display = 'none';
+    return;
+  }
+  const result = await window.api.getBracketState({ inputPath: activePath, bracketSize });
+  if (!result.success) {
+    container.innerHTML = `<p class="hint">Could not read bracket state: ${result.error}</p>`;
+    document.getElementById('saveBracketRow').style.display = 'none';
+    return;
+  }
+  lastLoadedBracketState = result;
+  suggestedBracketYear = await computeSuggestedYear(result.seasonYear);
+  renderBracketViewTree(result);
+}
+
+document.querySelector('.tabbtn[data-tab="5"]').addEventListener('click', refreshBracketView);
+document.getElementById('btnRefreshBracketView').addEventListener('click', refreshBracketView);
+
+document.getElementById('btnSaveBracketToHistory').addEventListener('click', async () => {
+  const statusEl = document.getElementById('saveBracketStatus');
+  const yearInput = document.getElementById('saveBracketYear');
+  const year = parseInt(yearInput.value, 10);
+  if (!lastLoadedBracketState || !lastLoadedBracketState.champion) {
+    statusEl.textContent = 'No decided champion to save yet.';
+    return;
+  }
+  if (!year || !Number.isInteger(year)) {
+    statusEl.textContent = 'Enter a valid year first.';
+    return;
+  }
+  statusEl.textContent = 'Saving...';
+  const result = await window.api.saveBracketToHistory({
+    year,
+    bracketSize,
+    rounds: lastLoadedBracketState.rounds,
+    champion: lastLoadedBracketState.champion,
+  });
+  if (!result.success) {
+    statusEl.textContent = `Failed: ${result.error}`;
+    return;
+  }
+  statusEl.textContent = result.overwrote ? `Saved (replaced existing ${year} entry).` : `Saved as ${year}.`;
+  suggestedBracketYear = year + 1;
+});
+
+// --- Tab 6: Bracket History ---
+let bracketHistoryEntries = [];
+
+async function refreshBracketHistoryList() {
+  await ensureTeamColorsLoaded();
+  const listEl = document.getElementById('bracketHistoryList');
+  const result = await window.api.getBracketHistory();
+  if (!result.success) {
+    listEl.innerHTML = '';
+    document.getElementById('bracketHistoryContainer').innerHTML = `<p class="hint">Could not read bracket history: ${result.error}</p>`;
+    return;
+  }
+  bracketHistoryEntries = result.entries;
+  listEl.innerHTML = '';
+  if (!bracketHistoryEntries.length) {
+    document.getElementById('bracketHistoryContainer').innerHTML = '<p class="hint">No brackets saved yet - once a champion is decided on the Bracket View tab, use "Save Bracket" there.</p>';
+    return;
+  }
+  // Sorted newest-first in the dropdown, since that's what people most
+  // often want to check - but the entries themselves came back sorted
+  // ascending from the backend (oldest first), so build the list in
+  // reverse without mutating the original array.
+  const newestFirst = bracketHistoryEntries.slice().reverse();
+  newestFirst.forEach(entry => {
+    const opt = document.createElement('option');
+    opt.value = entry.year;
+    opt.textContent = `${entry.year} - ${entry.champion || 'No champion'}`;
+    listEl.appendChild(opt);
+  });
+  listEl.onchange = () => {
+    const selected = bracketHistoryEntries.find(e => String(e.year) === listEl.value);
+    if (selected) renderBracketHistoryEntry(selected);
+  };
+  // Show the most recent year by default.
+  listEl.value = newestFirst[0].year;
+  renderBracketHistoryEntry(newestFirst[0]);
+}
+
+function renderBracketHistoryEntry(entry) {
+  const container = document.getElementById('bracketHistoryContainer');
+  container.innerHTML = buildBracketSvgMarkup({
+    rounds: entry.rounds,
+    champion: entry.champion,
+    bracketSizeForOrder: entry.bracketSize,
+    currentRoundIndex: entry.rounds.length, // fully complete season - nothing ghosts
+    year: entry.year,
+    idPrefix: `history-${entry.year}-`,
+  });
+  applyZoom('bracketHistoryContainer');
+}
+
+document.querySelector('.tabbtn[data-tab="6"]').addEventListener('click', refreshBracketHistoryList);
+document.getElementById('btnRefreshBracketHistory').addEventListener('click', refreshBracketHistoryList);
+
 function makeTeamSelect(id) {
   const sel = document.createElement('select');
   sel.id = id;
@@ -1534,6 +2678,16 @@ function getOriginalSeedLookup() {
   round1Games.forEach(g => {
     if (g.home) lookup[g.home] = g.homeSeed;
     if (g.away) lookup[g.away] = g.awaySeed;
+  });
+  // Also include 12-team's Round 1 results and byes, if that workflow
+  // has been used this session - keeps the dropdown's "(#N Seed)" hint
+  // working correctly in the 12-team panel too, not just 16-team's.
+  round1Games12.forEach(g => {
+    if (g.home) lookup[g.home] = g.homeSeed;
+    if (g.away) lookup[g.away] = g.awaySeed;
+  });
+  byes12.forEach(b => {
+    if (b.name) lookup[b.name] = b.byeSeed;
   });
   return lookup;
 }
@@ -1569,6 +2723,7 @@ function makeTeamSelectWithSeed(id, seedLookup) {
 function buildBracketTab() {
   document.getElementById('seedCount').textContent = `${bracketSize} seeds`;
   document.getElementById('round2Panel').style.display = bracketSize === 16 ? 'block' : 'none';
+  document.getElementById('round2Panel12').style.display = bracketSize === 12 ? 'block' : 'none';
   const seedRows = document.getElementById('seedRows');
   seedRows.innerHTML = '';
   for (let i = 0; i < bracketSize; i++) {
@@ -1742,6 +2897,7 @@ document.getElementById('btnPickInput').addEventListener('click', async () => {
     }
     renderRankingsList();
     renderStandings();
+    renderConferencesGuide();
     checkConferenceMismatchSilently();
     checkGameFingerprintSilently(inputPath);
 
@@ -1773,10 +2929,23 @@ document.getElementById('btnApply').addEventListener('click', async () => {
     config.round1 = matchups.map(m => ({ home: m.home, away: m.away }));
     config.round2 = [];
   } else if (bracketSize === 12) {
-    // Seeds 1-4 go into Quarterfinal bye slots (home only, away TBD).
-    // Seeds 5-12 play in Round 1 (5v12, 6v11, 7v10, 8v9).
+    // Seeds 5-12 play in Round 1 (5v12, 6v11, 7v10, 8v9), written into
+    // records 924-927 in that order.
     config.round1 = matchups.filter(m => !m.isByeGame).map(m => ({ home: m.home, away: m.away }));
-    config.quarterfinals = matchups.filter(m => m.isByeGame).map(m => ({ home: m.home, away: null }));
+
+    // Seeds 1-4 go into the Quarterfinal bye slots (home only, away
+    // TBD until Round 1 is actually played). These get written into
+    // records 928-931 index-for-index with round1 above (924<->928,
+    // 925<->929, 926<->930, 927<->931 - fixed by the real game, not
+    // something we control). What we DO control is which seed goes
+    // into which of those 4 slots, and the confirmed real seeding is
+    // NOT the naive "seed1 waits for game 0" assumption: it's 8/9
+    // plays seed 1, 7/10 plays seed 2, 6/11 plays seed 3, 5/12 plays
+    // seed 4. Since round1 above is in ascending seed order (5v12
+    // first, 8v9 last), the byes need to go in descending order (seed
+    // 4 first, seed 1 last) to land next to the right game.
+    const byesAscending = matchups.filter(m => m.isByeGame).map(m => ({ home: m.home, away: null }));
+    config.quarterfinals = byesAscending.slice().reverse();
   } else {
     config.round1 = matchups.map(m => ({ home: m.home, away: m.away }));
   }
@@ -1812,6 +2981,9 @@ document.getElementById('btnApply').addEventListener('click', async () => {
   logEl.style.color = result.success ? '' : 'var(--red)';
   if (result.success) {
     logEl.textContent += '\n\n\u26A0\uFE0F Before you keep playing: load this new save in-game and double check every team landed in the right spot - the tool has been correct every time we\'ve verified it, but always confirm in-game rather than trusting this log alone.';
+    appliedRoundIndex = Math.max(appliedRoundIndex, 0);
+    inputPath = outputPath;
+    if (document.getElementById('tab5').classList.contains('active')) refreshBracketView();
   }
 });
 
@@ -1985,6 +3157,132 @@ document.getElementById('btnApplyRound2').addEventListener('click', async () => 
   logEl.style.color = result.success ? '' : 'var(--red)';
   if (result.success) {
     logEl.textContent += '\n\n\u26A0\uFE0F Before you keep playing: load this new save in-game and double check every team landed in the right spot - the tool has been correct every time we\'ve verified it, but always confirm in-game rather than trusting this log alone.';
+    appliedRoundIndex = Math.max(appliedRoundIndex, 1);
+    inputPath = outputPath;
+    if (document.getElementById('tab5').classList.contains('active')) refreshBracketView();
+  }
+});
+
+// --- Round 2 (Quarterfinals) workflow for 12-team: a separate pass,
+// run against a save loaded *after* Round 1 has actually been played.
+// Unlike 16-team, there's no general reseed here - the pairing is
+// fixed by the real CFP convention (8/9's winner plays seed 1, 7/10's
+// plays seed 2, 6/11's plays seed 3, 5/12's plays seed 4), confirmed
+// via actual gameplay to be the opposite of what the game's native
+// auto-advance currently does. So this only needs winner confirmation
+// per game, not a matchup-pairing step.
+let round2InputPath12 = null;
+let round1Games12 = []; // [{ label, home, away, detectedWinner, homeSeed, awaySeed }]
+let byes12 = []; // [{ record, byeSeed, name }] - read directly from the save
+
+document.getElementById('btnPickRound2Input12').addEventListener('click', async () => {
+  const path = await window.api.pickInputFile();
+  if (path) {
+    round2InputPath12 = path;
+    await window.checkAndMaybeShowCoachProtect(path);
+    checkGameFingerprintSilently(round2InputPath12);
+    document.getElementById('round2FilePathDisplay12').textContent = path;
+    updateRound2ApplyState12();
+  }
+});
+
+document.getElementById('btnCheckRound1_12').addEventListener('click', async () => {
+  if (!round2InputPath12) {
+    document.getElementById('round2Status12').textContent = 'Load a save file first.';
+    return;
+  }
+  document.getElementById('round2Status12').textContent = 'Reading Round 1 results...';
+  const result = await window.api.getRound1Status12({ inputPath: round2InputPath12 });
+  if (!result.success) {
+    document.getElementById('round2Status12').textContent = `Failed: ${result.error}`;
+    return;
+  }
+  round1Games12 = result.games;
+  byes12 = result.byes;
+  const missingByes = byes12.filter(b => !b.name).length;
+  document.getElementById('round2Status12').textContent = missingByes
+    ? `Found ${round1Games12.length} Round 1 games, but ${missingByes} bye seed(s) couldn't be read from this save - double check Round 1 was actually applied to it.`
+    : `Found ${round1Games12.length} Round 1 games and all 4 byes. Winners below are read from the save's winner flag - double check each against your bracket/scores screen, then confirm or override.`;
+  renderRound1Results12();
+});
+
+function renderRound1Results12() {
+  const container = document.getElementById('round1ResultsRows12');
+  container.innerHTML = '';
+  round1Games12.forEach((g, i) => {
+    const bye = byes12[i];
+    const byeSeed = bye ? bye.byeSeed : 4 - i;
+    const byeName = bye && bye.name ? bye.name : '(bye seed not found in this save)';
+
+    const row = document.createElement('div');
+    row.style.marginBottom = '10px';
+    row.style.paddingBottom = '10px';
+    row.style.borderBottom = '1px solid var(--border)';
+
+    const title = document.createElement('div');
+    title.style.fontSize = '12px';
+    title.style.color = 'var(--text-dim)';
+    title.style.marginBottom = '6px';
+    title.textContent = g.home && g.away
+      ? `${g.label}: #${g.awaySeed} ${g.away} vs #${g.homeSeed} ${g.home} - winner plays #${byeSeed} ${byeName}`
+      : `${g.label}: not set yet`;
+
+    const label = document.createElement('label');
+    label.style.fontSize = '11px';
+    label.style.color = 'var(--gold-dim)';
+    label.style.textTransform = 'uppercase';
+    label.style.display = 'block';
+    label.style.marginBottom = '4px';
+    label.textContent = 'Confirmed winner';
+
+    const sel = makeTeamSelectWithSeed(`round1Winner12_${i}`, getOriginalSeedLookup());
+    if (g.detectedWinner) sel.value = g.detectedWinner;
+    sel.addEventListener('change', updateRound2ApplyState12);
+
+    row.append(title, label, sel);
+    container.appendChild(row);
+  });
+  updateRound2ApplyState12();
+}
+
+function updateRound2ApplyState12() {
+  let allSet = round1Games12.length > 0 && byes12.length > 0 && byes12.every(b => b.name);
+  for (let i = 0; i < round1Games12.length; i++) {
+    const sel = document.getElementById(`round1Winner12_${i}`);
+    if (!sel || !sel.value) allSet = false;
+  }
+  document.getElementById('btnApplyRound2_12').disabled = !allSet || !round2InputPath12;
+}
+
+document.getElementById('btnApplyRound2_12').addEventListener('click', async () => {
+  const logEl = document.getElementById('round2Log12');
+  const quarterfinals = round1Games12.map((g, i) => {
+    const winnerSel = document.getElementById(`round1Winner12_${i}`);
+    return { home: byes12[i].name, away: winnerSel.value };
+  });
+  const config = {
+    bracketSize: 12,
+    // No config.round1 here deliberately - this pass only touches the
+    // Quarterfinal records (928-931), never re-touches Round 1 (924-927),
+    // which has already been played and shouldn't be disturbed.
+    quarterfinals,
+    playoffTeams: quarterfinals.flatMap(m => [m.home, m.away]).filter(Boolean),
+    rankingOrder: bcsRankings.map(r => r.name),
+  };
+
+  const outputPath = await window.api.pickOutputLocation('DYNASTY-BRACKET-ROUND2.sav');
+  if (!outputPath) return;
+
+  logEl.textContent = 'Running...';
+  logEl.style.color = '';
+  const result = await window.api.runEdit({ inputPath: round2InputPath12, outputPath, config });
+  logEl.textContent = result.log.join('\n');
+  logEl.style.color = result.success ? '' : 'var(--red)';
+  if (result.success) {
+    logEl.textContent += '\n\n\u26A0\uFE0F Before you keep playing: load this new save in-game and double check every team landed in the right spot - confirm 8/9 is actually facing seed 1, not just trust this log.';
+    appliedRoundIndex = Math.max(appliedRoundIndex, 1);
+    inputPath = outputPath;
+    if (document.getElementById('tab5').classList.contains('active')) refreshBracketView();
   }
 });
 

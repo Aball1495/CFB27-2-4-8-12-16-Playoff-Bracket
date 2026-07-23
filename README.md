@@ -75,6 +75,11 @@ that says **"Detect conferences from this save's schedule."** Click it —
 it reads your actual save and figures out the real conferences for you.
 Double check the result looks right, then save it.
 
+The tool also has a small step-by-step helper right on this screen that
+tells you exactly where you are in this process (load a save → standings
+show up → fix conferences if needed → move to the Bracket tab) — if
+you're ever not sure what to do next, check there first.
+
 **If you want to do it by hand instead:** there's a file called
 `teamConferenceOverrides.json` next to the .exe. Open it and just list
 the teams that changed, like this:
@@ -100,6 +105,13 @@ save your changes.
 - You load that new file in the actual game and keep playing.
 
 That's the whole loop. The tricky part is **timing** — see below.
+
+Once you've picked a bracket size, the tool also shows a small
+step-by-step guide right on screen that walks you through the exact
+sequence for that size — it highlights whichever step you're currently
+on as you move between tabs, so you don't have to keep this README open
+the whole time. The sections below are the full explanation behind those
+steps, for whenever you want more detail.
 
 ### Timing matters — a lot
 
@@ -130,6 +142,40 @@ Pick your bracket size below and follow those exact steps.
    coach" below.
 5. Load the new file and keep playing — Semis and Championship advance
    automatically.
+
+#### If you're doing a 12-team bracket (this one takes two visits to the tool)
+
+Seeds 1-4 get a bye straight into the Quarterfinals. Seeds 5-12 play each
+other in Round 1. The game's own auto-advance does **not** hand out the
+Quarterfinal matchups correctly on its own — it currently pairs the wrong
+winner with the wrong bye seed — so just like the 16-team bracket below,
+you need to come back a second time and let the tool fix that pairing
+directly.
+
+**First visit — set up Round 1 and the byes:**
+1. Play through Conference Championships.
+2. **Stop before Bowl Week starts** — no bowls played yet.
+3. Build your 12 teams in the tool, **Apply & Save**. This sets up both
+   Round 1 (5v12, 6v11, 7v10, 8v9) and the 4 byes (seeds 1-4) in one go.
+4. **If your own team is one of the 12**, see "Retiring and rehiring your
+   coach" below — this is visit #1 of 2 for that step.
+5. Load that file and play all 4 Round 1 games.
+
+**Second visit — fix the Quarterfinals:**
+1. Once all 4 Round 1 games are done, open the tool again, on the
+   Bracket tab's "Round 2" section.
+2. Load the save from *after* you played those games (a different file
+   than before).
+3. Click **Check Round 1 results** — it reads who actually won and lines
+   each winner up against the correct bye seed (8/9's winner plays seed
+   1, 7/10's plays seed 2, 6/11's plays seed 3, 5/12's plays seed 4).
+   **Double check it got the winners right** before moving on.
+4. Click **Apply Round 2 & Save**.
+5. **If your own team survived into the Quarterfinals**, see "Retiring
+   and rehiring your coach" below again — this is visit #2 of 2, same as
+   the 16-team bracket's second visit.
+6. Load that file and keep playing — Semis and Championship advance
+   automatically from here.
 
 #### If you're doing a 16-team bracket (this one takes two visits to the tool)
 
@@ -206,6 +252,45 @@ actually in the save, even though the underlying data turned out to be
 correct after checking carefully — so a quick look in-game is the
 cheapest way to catch anything unexpected before it affects your season.
 
+The **Bracket View** tab (see below) is a fast way to do this check
+without leaving the tool.
+
+## Bracket View — see your whole bracket as a picture
+
+There's a tab called **Bracket View** that draws your actual bracket as
+a real tree — team logos, seed numbers, colors, all of it — so you can
+see the whole thing at a glance instead of reading through game names.
+
+- It's **read-only** — looking at it never changes your save.
+- It automatically fills in as you Apply each round. Rounds that
+  haven't happened yet show as "TBD."
+- There's a **Zoom slider** if you want to shrink it to fit your whole
+  screen (handy for a screenshot) or blow it up for detail.
+- Normally it looks at whatever save is loaded at the top of the page,
+  but there's also a **"Load a different save to view"** button if you
+  want to check a specific output file (like a fresh Round 2 save)
+  without disturbing what the rest of the tool is pointed at.
+- One thing to know: the bracket size it draws always matches whatever
+  format you currently have selected on the Format tab — it doesn't
+  detect the size from the file itself. If you loaded a save built for
+  a different size, switch the format first.
+- Once a champion is decided, a **"Save Bracket"** button shows up —
+  see Bracket History below.
+
+## Bracket History — keep a record of every season
+
+Next to Bracket View is a **Bracket History** tab. Once a season's
+champion is decided, hit **Save Bracket** on the Bracket View tab and
+it gets filed away by year. Come back to the History tab any time and
+pick a year from the dropdown to see exactly what that season's bracket
+looked like, start to finish.
+
+This is completely separate from your actual save file — it's just a
+small record the tool keeps for you (`bracketHistory.json`, sitting
+next to the .exe). Saving is manual, on purpose, so testing or
+re-running the tool doesn't spam this list — saving the same year again
+just replaces that year's entry.
+
 ## Retiring and rehiring your coach (if your team is in the bracket)
 
 **This only matters if YOUR team is one of the teams in the bracket you
@@ -215,15 +300,23 @@ entirely.
 After Applying, your own team's "Play Game" button can show the wrong
 opponent, or your team can look like it's missing from the Members tab.
 This is **not caused by this tool** — it's a separate issue on the
-game's side. Nothing is actually broken when this happens; your save
-and your data are fine, it's just the game's screen showing you
-outdated information.
+game's side, tied to editing saves outside the game at all. Nothing is
+actually broken when this happens; your save and your data are fine,
+it's just the game's screen showing you outdated information. There's
+no fix for this on the save-file side — it doesn't leave any trace in
+the file itself, so no amount of editing can prevent it. The
+retire/rehire steps below are the only known workaround.
 
 **The fix for the retire/rehire dance itself:** there's a full
 step-by-step guide with pictures posted in the Discord — **"User
 Created Coach Retirement Guide"**. Follow that guide's steps in order —
 it looks long, but that's mostly it explaining *why* each step matters.
 Once you've done it once, it's a few minutes.
+
+**Remember: both 12-team and 16-team brackets need this done twice** —
+once after your first visit to the tool, and again after your second.
+Every other bracket size only needs it done once, after your one and
+only Apply.
 
 The coach-safety part specifically (protecting a created coach before
 retiring them) is something you've **already got** just by using this
@@ -261,58 +354,44 @@ sign something's wrong. If you see this warning:
 
 ## What's new in this update
 
-**Fixed: a game you actually played could show up as still needing to be
-played.** After Applying a bracket, playing one of the games live could
-finish normally in-game but then still show up as unplayed afterward,
-with no score and no way to move on. The tool used to reset a few status
-fields on every game it touched, and that turned out to be exactly what
-caused this. It no longer touches those fields at all — it only swaps
-the teams and updates the rankings. If a game you didn't personally play
-gets auto-simmed instead, it may briefly show a leftover placeholder
-score until the game actually processes it, which is cosmetic and
-resolves itself; a game you actually play always finalizes correctly.
+**Two new tabs: Bracket View and Bracket History.** See those sections
+above — a visual, read-only picture of your bracket, and a season-by-
+season record of every champion you've crowned.
 
-**Fixed: the coach-safety popup was showing up every single time, even
-when nothing was actually at risk.** It's now scoped correctly - it only
-appears when a coach genuinely needs protecting, not just because you
-happen to be controlling a team (which is normal and fine on its own).
+**Fixed: the 12-team bracket's Quarterfinals were pairing the wrong
+teams together.** Real gameplay testing showed the game's own
+auto-advance doesn't hand out the Quarterfinal matchups correctly on its
+own — the winner of the 8-vs-9 game should play the #1 seed, but the
+game was pairing it with a different seed instead. 12-team brackets now
+work like 16-team ones: you come back for a second visit after Round 1
+to set the Quarterfinals correctly. See the 12-team section above for
+the exact steps.
 
-**Fixed a rare file-corruption bug in the writing step itself.** In some
-saves, a coincidental quirk in the file's own bytes could cause the tool
-to miscalculate where to start writing, corrupting the output file. The
-tool now also double-checks that whatever it just wrote can actually be
-opened again, and will refuse to hand you a broken file rather than fail
-silently.
+**Fixed: the National Championship banner could show the wrong winner.**
+A mismatch between two different ways the tool checked "who won" could
+occasionally point at the loser instead. Both checks are now consistent
+with each other, and this was double-checked against a real save to
+confirm it's actually fixed, not just theoretically fixed.
 
-**Your bracket's rankings now show up correctly everywhere in the game.**
-Before this update, the tool's own rankings (the ones used to seed your
-bracket) and the game's actual Top 25 / CFP rankings (shown on bowl and
-schedule screens) could disagree — a team seeded 7th in your bracket
-might still show up ranked 3rd on the game's own schedule screen, because
-the game never knew about your bracket. Now, every time you Apply, your
-bracket's actual seed numbers get written into the game's own ranking
-display too. What you build in the tool is what you'll see in-game.
+**Fixed a bunch of team abbreviations that were wrong or genuinely
+confusing** — things like Colorado State showing as just "CS," or
+Kennesaw State's abbreviation being easy to mistake for Kansas's. About
+15 teams total got corrected.
 
-**Fixed: a conference's champion could occasionally not get "crowned."**
-If you use the Conferences tool, there was a bug where a conference's
-actual champion (the team that really won the title game) could get
-missed if their overall record wasn't the best in the conference — which
-can genuinely happen. This is fixed now.
+**Real team logos now actually show up in Bracket View,** instead of
+just colored circles with initials — plus a handful of logo-specific
+fit issues (a couple of teams' logos not centering well in the small
+circle) got cleaned up too.
 
-**The tool now double-checks itself after every Apply.** It verifies
-nothing outside the specific week(s) it's supposed to touch actually
-changed. If it ever detects that something it shouldn't have touched got
-changed anyway, it will refuse to hand you that file and show a clear
-"VERIFICATION FAILED" message in the Log instead of a silently broken
-save. If you ever see this message, don't use that file — post about it
-in the Discord.
+**Added a live step-by-step helper** on both the main bracket-building
+screens and the Conferences screen — it highlights exactly what to do
+next based on where you are and what bracket size you picked, so you
+don't have to keep this README open the whole time.
 
-**Clearer error if you Apply too early.** If you point the tool at a
-save from before the previous round has actually been played, it now
-stops right away and tells you plainly what happened, instead of
-building a bracket with a missing team in it. If you see this, just sim
-to the correct week (see Timing above), save, and try again with that
-save file.
+**Various smaller Bracket View fixes:** rounds that hadn't actually
+happened yet could occasionally show stale leftover data instead of
+"TBD;" the Championship banner's border could get cut off on small
+brackets; the bracket tree can now be zoomed in/out to fit any screen.
 
 ## Something went wrong / found a bug?
 

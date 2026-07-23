@@ -97,6 +97,11 @@ ipcMain.handle('get-team-conferences', async () => {
   return { TEAM_CONFERENCE, ALL_CONFERENCES };
 });
 
+ipcMain.handle('get-team-colors', async () => {
+  const { TEAM_COLORS } = await import('./teamColors.mjs');
+  return TEAM_COLORS;
+});
+
 ipcMain.handle('compute-bcs-rankings', async (event, { inputPath, options }) => {
   try {
     const { openSave, findConferenceChampionsByStandings } = await import('./playoffEditorCore.mjs');
@@ -414,12 +419,72 @@ ipcMain.handle('detect-conferences-from-schedule', async (event, { inputPath, at
   }
 });
 
+ipcMain.handle('check-conference-overrides-exist', async () => {
+  try {
+    const overridesPath = path.join(__dirname, 'teamConferenceOverrides.json');
+    return { success: true, exists: fs.existsSync(overridesPath) };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
 ipcMain.handle('save-conference-overrides', async (event, { overrides }) => {
   try {
     const fs2 = await import('node:fs');
     const overridesPath = path.join(__dirname, 'teamConferenceOverrides.json');
     fs2.writeFileSync(overridesPath, JSON.stringify(overrides, null, 2));
     return { success: true };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+// Bracket History - a manually-saved record of a completed bracket for
+// a given year, stored alongside the app (same convention as
+// teamConferenceOverrides.json) rather than inside the dynasty save
+// itself, since the save's playoff records get overwritten every
+// season and there's no in-save "which year was this" field this tool
+// has confirmed access to. Saving is a deliberate button-press (once a
+// champion exists), not automatic - so testing/re-running the tool
+// against the same season doesn't spam the history with duplicates,
+// and the year itself is user-entered (pre-filled with a suggestion)
+// rather than inferred, since the person doing the save is the one who
+// actually knows what season this is.
+const BRACKET_HISTORY_PATH = path.join(__dirname, 'bracketHistory.json');
+
+function readBracketHistoryFile() {
+  if (!fs.existsSync(BRACKET_HISTORY_PATH)) return [];
+  try {
+    const raw = fs.readFileSync(BRACKET_HISTORY_PATH, 'utf8');
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+ipcMain.handle('get-bracket-history', async () => {
+  try {
+    const entries = readBracketHistoryFile().slice().sort((a, b) => a.year - b.year);
+    return { success: true, entries };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('save-bracket-to-history', async (event, { year, bracketSize, rounds, champion }) => {
+  try {
+    if (!year || !Number.isInteger(year)) {
+      return { success: false, error: 'A valid year is required.' };
+    }
+    const entries = readBracketHistoryFile();
+    const existingIndex = entries.findIndex(e => e.year === year);
+    const entry = { year, bracketSize, rounds, champion, savedAt: new Date().toISOString() };
+    const overwrote = existingIndex !== -1;
+    if (overwrote) entries[existingIndex] = entry;
+    else entries.push(entry);
+    fs.writeFileSync(BRACKET_HISTORY_PATH, JSON.stringify(entries, null, 2));
+    return { success: true, overwrote };
   } catch (err) {
     return { success: false, error: err.message };
   }
@@ -470,6 +535,235 @@ ipcMain.handle('check-conference-mismatch', async (event, { inputPath }) => {
     }));
 
     return { success: true, mismatches, exactConferences };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+// Read-only. Returns the current state of every CFP-adjacent record for
+// the given bracket size, straight from the save - no writes, no risk to
+// anything else. Does NOT decide what's "ghosted" (not yet reached) -
+// that's intentionally left to the renderer, which tracks which rounds
+// the tool has actually applied *in this session*. Reading a record's
+// team names alone can't reliably tell "user's real Round 2 pick" apart
+// from "native leftover default data" - they're structurally identical -
+// so ghosting by save-content-inference would be guessing, not truth.
+ipcMain.handle('get-bracket-state', async (event, { inputPath, bracketSize }) => {
+  try {
+    const { openSave, readMatchup, readRecordBits, WINNER_BIT, REGULAR_BOWLS, TEAM_TABLE_ID, resolveTable, TABLE_UNIQUE_IDS: TUI } = await import('./playoffEditorCore.mjs');
+    const { rowToName } = await import('./teamLookup.mjs');
+    const Franchise = (await import('madden-franchise')).default;
+
+    const { unpackedFileContents, recordsStart, recordSize } =
+      await openSave(inputPath, path.join(__dirname, 'schemas'));
+    const buf = Buffer.from(unpackedFileContents);
+
+    const fr = await Franchise.create(inputPath, {
+      schemaDirectory: path.join(__dirname, 'schemas'),
+      schemaOverride: { major: 472, minor: 0, gameYear: 27, path: path.join(__dirname, 'schemas', '472_0.gz') },
+    });
+    const seasonTable = resolveTable(fr, TUI.SeasonGame, 'SeasonGame');
+    await seasonTable.readRecords();
+
+    // Raw read, file field order exactly as stored - no swap correction
+    // here. The swap only applies to records OUR OWN tool wrote (see
+    // writeGame's comment in run-edit: our app's "home"/better seed
+    // always lands in the file's AwayTeam field, and our "away"/worse
+    // seed in the file's HomeTeam field). Games the real game engine
+    // fills in natively (Semifinals, Championship, a 12-team bye's
+    // "waiting" slot once actually played) follow whatever convention
+    // the game itself uses - unverified - so those stay raw/un-swapped.
+    //
+    // Winner determination: confirmed via a real save (national
+    // championship, Notre Dame 31 - Ohio State 29) that the schema's
+    // named GameStatus field does NOT use the same home/away labeling
+    // as readMatchup's home/away fields - GameStatus said "AwayWon"
+    // while the real winner (Notre Dame) was sitting in the field
+    // readMatchup calls "home". WINNER_BIT, read the same raw-bit way
+    // get-round1-status already does successfully, agreed with reality
+    // (0 = home field won = Notre Dame, correct). So winner comes from
+    // WINNER_BIT + readMatchup, matching the proven method elsewhere.
+    //
+    // Completion gate: NOT GameStatus, and NOT IsSimmed either - both
+    // confirmed via a real 12-team save to already show a "decided"-
+    // looking value (GameStatus=HomeWon/AwayWon, IsSimmed=true) the
+    // moment you simply ENTER a week, before that week has actually
+    // been played through - a provisional/projected result, not a
+    // final one. HasBeenPublished was confirmed false on every record
+    // in that same save regardless of whether its week was in-progress
+    // or not yet reached at all - the one field that actually tracks
+    // "this result is real and locked in," which is exactly what
+    // gating needs.
+    function readGameRaw(recordIndex) {
+      const m = readMatchup(buf, recordsStart, recordSize, recordIndex);
+      if (m.home.tableId !== TEAM_TABLE_ID || m.away.tableId !== TEAM_TABLE_ID) {
+        return { home: null, away: null, winner: null, status: null };
+      }
+      const homeName = rowToName(m.home.row);
+      const awayName = rowToName(m.away.row);
+      let hasBeenPublished = null;
+      try { hasBeenPublished = seasonTable.records[recordIndex]['HasBeenPublished']; } catch { /* leave null */ }
+      let winner = null;
+      if (hasBeenPublished === true) {
+        const recStart = recordsStart + recordIndex * recordSize;
+        const recordBuf = buf.subarray(recStart, recStart + recordSize);
+        const winnerBit = readRecordBits(recordBuf, WINNER_BIT, 1);
+        winner = winnerBit === 0 ? homeName : awayName;
+      }
+      return { home: homeName, away: awayName, winner, hasBeenPublished };
+    }
+    const isComplete = (recordIndex) => !!readGameRaw(recordIndex).winner;
+
+    const slotMap = BRACKET_SLOT_MAPS[bracketSize];
+    if (!slotMap) return { success: false, error: `No slot map for bracket size ${bracketSize}` };
+
+    // Seed lookup built as we go: the save file never stores a seed
+    // number on a game record, only team identity, so once a team's
+    // seed is known (Round 1's fixed formula, or a 12-team bye) it's
+    // remembered by name so a later round (a winner advancing) can
+    // still show it.
+    const seedByName = {};
+
+    // Round 0 (the very first round our tool ever writes for this
+    // bracket size - Round 1 for every size except 12, where it's the
+    // 5v12/6v11/7v10/8v9 games) always goes through writeGame, which
+    // ALWAYS swaps: our app's better seed ends up in the file's AwayTeam
+    // field. So the file's away field belongs on top, home on the
+    // bottom - opposite of raw field order - and the seed number is
+    // knowable directly from the game index via seedFor(i).
+    function pushRound0(recordIndices, seedFor) {
+      const flat = [];
+      recordIndices.forEach((rec, i) => {
+        const g = readGameRaw(rec);
+        const { better, worse } = seedFor(i);
+        if (g.away) seedByName[g.away] = better;
+        if (g.home) seedByName[g.home] = worse;
+        flat.push({ name: g.away, seed: g.away ? better : null });
+        flat.push({ name: g.home, seed: g.home ? worse : null });
+      });
+      rounds.push(flat);
+    }
+
+    // Any later, auto-advanced round (Semifinal, Championship). If the
+    // game(s) feeding it haven't actually been decided yet, whatever
+    // team name currently sits in that record is native leftover/
+    // default data, not a real result - force TBD rather than show it.
+    // Read in raw field order since the game's own auto-advance
+    // hasn't been confirmed to follow our write convention.
+    function pushAutoRound(recordIndices, sourceComplete) {
+      const flat = [];
+      recordIndices.forEach(rec => {
+        const g = readGameRaw(rec);
+        const home = sourceComplete ? g.home : null;
+        const away = sourceComplete ? g.away : null;
+        flat.push({ name: home, seed: home ? (seedByName[home] ?? null) : null });
+        flat.push({ name: away, seed: away ? (seedByName[away] ?? null) : null });
+      });
+      rounds.push(flat);
+    }
+
+    // 16-team's Round 2 (Quarterfinals) is a manual reseed our tool
+    // also writes via writeGame (same swap applies), but which teams
+    // land there is the user's manual choice, not a fixed seed formula
+    // - so attach a seed only if the name lookup already knows one.
+    function pushManualReseedRound(recordIndices) {
+      const flat = [];
+      recordIndices.forEach(rec => {
+        const g = readGameRaw(rec);
+        flat.push({ name: g.away, seed: g.away ? (seedByName[g.away] ?? null) : null });
+        flat.push({ name: g.home, seed: g.home ? (seedByName[g.home] ?? null) : null });
+      });
+      rounds.push(flat);
+    }
+
+    // 12-team's Quarterfinal round is a mix: the bye half (file's away
+    // field, per the same writeGame swap) is always real, written
+    // directly by our tool; the other half only becomes real once that
+    // specific Round 1 game has actually been decided. Byes are
+    // written in DESCENDING seed order (seed 4 at index 0, seed 1 at
+    // index 3) so each lands next to the Round 1 game it actually
+    // plays - see the config.quarterfinals comment in btnApply.
+    function pushTwelveTeamQuarterfinals(recordIndices, round1Complete) {
+      const flat = [];
+      recordIndices.forEach((rec, i) => {
+        const g = readGameRaw(rec);
+        const byeSeed = 4 - i;
+        if (g.away) seedByName[g.away] = byeSeed;
+        const waitingName = round1Complete[i] ? g.home : null;
+        flat.push({ name: g.away, seed: g.away ? byeSeed : null });
+        flat.push({ name: waitingName, seed: waitingName ? (seedByName[waitingName] ?? null) : null });
+      });
+      rounds.push(flat);
+    }
+
+    const rounds = [];
+    // Gates the `champion` field below on the SAME completion signal
+    // already used to decide whether to show real team names in the
+    // Championship round display - previously `champion` ignored this
+    // entirely and trusted record 401's raw GameStatus regardless of
+    // whether the bracket had actually reached that point. Record 401
+    // can carry a leftover/native GameStatus unrelated to this bracket
+    // (same root cause as every other auto-advanced-round bug fixed
+    // earlier) - confirmed by a real report where the tool displayed a
+    // "champion" while the rest of the bracket was still correctly
+    // showing incomplete/TBD. For 2-team, the Championship IS the only
+    // round, so there's no separate feeder to gate on - readGameRaw's
+    // own winner-or-null already handles it correctly.
+    let championshipFeederComplete = true;
+
+    if (bracketSize === 16) {
+      const round1Records = [
+        ...slotMap.round1Native,
+        ...slotMap.round1BowlNames.map(name => REGULAR_BOWLS.find(b => b.name === name).record),
+      ];
+      pushRound0(round1Records, (i) => ({ better: i + 1, worse: 16 - i }));
+      pushManualReseedRound(slotMap.round2);
+      pushAutoRound([932, 933], slotMap.round2.every(isComplete));
+      championshipFeederComplete = isComplete(932) && isComplete(933);
+      pushAutoRound([401], championshipFeederComplete);
+    } else if (bracketSize === 12) {
+      pushRound0(slotMap.round1, (i) => ({ better: i + 5, worse: 12 - i }));
+      const round1Complete = slotMap.round1.map(isComplete);
+      pushTwelveTeamQuarterfinals(slotMap.quarterfinals, round1Complete);
+      pushAutoRound([932, 933], slotMap.quarterfinals.every(isComplete));
+      championshipFeederComplete = isComplete(932) && isComplete(933);
+      pushAutoRound([401], championshipFeederComplete);
+    } else if (bracketSize === 8) {
+      pushRound0(slotMap.round1, (i) => ({ better: i + 1, worse: 8 - i }));
+      pushAutoRound([932, 933], slotMap.round1.every(isComplete));
+      championshipFeederComplete = isComplete(932) && isComplete(933);
+      pushAutoRound([401], championshipFeederComplete);
+    } else if (bracketSize === 4) {
+      pushRound0(slotMap.round1, (i) => ({ better: i + 1, worse: 4 - i })); // [932, 933]
+      championshipFeederComplete = slotMap.round1.every(isComplete);
+      pushAutoRound([401], championshipFeederComplete);
+    } else if (bracketSize === 2) {
+      pushRound0(slotMap.round1, () => ({ better: 1, worse: 2 })); // [401]
+    }
+
+    const champGame = readGameRaw(401);
+    const champion = championshipFeederComplete ? champGame.winner : null;
+
+    // Real in-game season year, confirmed directly against a live save:
+    // SeasonYear=4 with the in-game year showing 2030 (2026 + 4). Scans
+    // a few records rather than trusting just one, since a single blank
+    // slot shouldn't be able to break this - SeasonYear was confirmed
+    // identical across every record in a season, so the first valid one
+    // found is as good as any other.
+    let realSeasonYear = null;
+    for (let i = 0; i < seasonTable.records.length; i++) {
+      const rec = seasonTable.records[i];
+      if (!rec) continue;
+      try {
+        const rawYear = rec['SeasonYear'];
+        if (typeof rawYear === 'number') {
+          realSeasonYear = 2026 + rawYear;
+          break;
+        }
+      } catch { /* try the next record */ }
+    }
+
+    return { success: true, rounds, champion, seasonYear: realSeasonYear };
   } catch (err) {
     return { success: false, error: err.message };
   }
@@ -531,6 +825,64 @@ ipcMain.handle('get-round1-status', async (event, { inputPath }) => {
     });
 
     return { success: true, games };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+// 12-team's Round 1 (5v12, 6v11, 7v10, 8v9) is all native CFP slots -
+// no repurposed-bowl lookup needed, unlike 16-team's version above.
+// Real gameplay (confirmed via actual Bowl Week 2 screenshots) showed
+// the game's native auto-advance does NOT match the real CFP
+// convention Alex wants (8/9's winner playing seed 1, etc.) - it's
+// backwards from that. Rather than fight the native wiring, this
+// mirrors the 16-team approach entirely: a manual second pass that
+// reads the real Round 1 winners and writes the desired Quarterfinal
+// pairing directly, overriding whatever the game already auto-
+// advanced. Also returns the actual bye occupants read from the save
+// itself (records 928-931's real content) rather than trusting
+// whatever's still sitting in the UI's seed dropdowns from an earlier
+// session - the save is the ground truth for who actually has each bye.
+ipcMain.handle('get-round1-status-12', async (event, { inputPath }) => {
+  try {
+    const { openSave, readMatchup, readRecordBits, WINNER_BIT, TEAM_TABLE_ID } = await import('./playoffEditorCore.mjs');
+    const { rowToName } = await import('./teamLookup.mjs');
+
+    const { unpackedFileContents, recordsStart, recordSize } =
+      await openSave(inputPath, path.join(__dirname, 'schemas'));
+    const buf = Buffer.from(unpackedFileContents);
+    const slotMap = BRACKET_SLOT_MAPS[12];
+
+    const games = [];
+    slotMap.round1.forEach((rec, i) => {
+      const homeSeed = 12 - i; // worse seed - file's HomeTeam field, per the writeGame swap
+      const awaySeed = i + 5;  // better seed - file's AwayTeam field
+      const label = `Round 1, game ${i + 1} (seed ${awaySeed} vs seed ${homeSeed})`;
+      const m = readMatchup(buf, recordsStart, recordSize, rec);
+      if (m.home.tableId !== TEAM_TABLE_ID || m.away.tableId !== TEAM_TABLE_ID) {
+        games.push({ label, record: rec, home: null, away: null, detectedWinner: null, homeSeed, awaySeed });
+        return;
+      }
+      const recStart = recordsStart + rec * recordSize;
+      const recordBuf = buf.subarray(recStart, recStart + recordSize);
+      const winnerBit = readRecordBits(recordBuf, WINNER_BIT, 1);
+      const homeName = rowToName(m.home.row);
+      const awayName = rowToName(m.away.row);
+      games.push({
+        label, record: rec, home: homeName, away: awayName,
+        detectedWinner: winnerBit === 0 ? homeName : awayName,
+        homeSeed, awaySeed,
+      });
+    });
+
+    const byes = slotMap.quarterfinals.map((rec, i) => {
+      const byeSeed = 4 - i;
+      const m = readMatchup(buf, recordsStart, recordSize, rec);
+      const name = (m.away.tableId === TEAM_TABLE_ID) ? rowToName(m.away.row) : null;
+      return { record: rec, byeSeed, name };
+    });
+
+    return { success: true, games, byes };
   } catch (err) {
     return { success: false, error: err.message };
   }
@@ -718,9 +1070,14 @@ ipcMain.handle('run-edit', async (event, { inputPath, outputPath, config }) => {
       });
       // Quarterfinals: seeds 1-4 written as home team with TBD away
       // (game fills in the Round 1 winner automatically after the game
-      // processes the first-round results).
+      // processes the first-round results). config.quarterfinals[i] is
+      // sent in DESCENDING seed order (seed 4 first) by the UI, since
+      // that's what lands each bye next to its correct Round 1 game
+      // (924<->928, ... 927<->931) per the confirmed real seeding: 8/9
+      // plays seed 1, 7/10 plays seed 2, 6/11 plays seed 3, 5/12 plays
+      // seed 4. So the label here says seed (4-i), not seed (i+1).
       (config.quarterfinals || []).forEach((game, i) => {
-        writeGame(slotMap.quarterfinals[i], game, `Quarterfinal bye, seed ${i + 1}`);
+        writeGame(slotMap.quarterfinals[i], game, `Quarterfinal bye, seed ${4 - i} (awaits winner of game ${i + 1})`);
       });
     } else {
       (config.round1 || []).forEach((game, i) => {
