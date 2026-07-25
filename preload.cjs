@@ -22,4 +22,7 @@ contextBridge.exposeInMainWorld('api', {
   getTeamColors: () => ipcRenderer.invoke('get-team-colors'),
   getBracketHistory: () => ipcRenderer.invoke('get-bracket-history'),
   saveBracketToHistory: (payload) => ipcRenderer.invoke('save-bracket-to-history', payload),
+  getCfpConversionPreference: () => ipcRenderer.invoke('get-cfp-conversion-preference'),
+  setCfpConversionPreference: (payload) => ipcRenderer.invoke('set-cfp-conversion-preference', payload),
+  checkCfpConversionState: (payload) => ipcRenderer.invoke('check-cfp-conversion-state', payload),
 });

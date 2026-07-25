@@ -27,3 +27,5 @@ npm-debug.log*
 
 # Env files, if any ever get added
 .env
+bracketHistory.json
+cfpConversionPreference.json

@@ -9,6 +9,246 @@ const fs = require('fs');
 
 let mainWindow;
 
+// --- 16-team CFP First Round presentation conversion ---
+// Confirmed working end-to-end via live in-game testing tonight
+// (stadium, playoff status/field markings/announcer commentary, logo,
+// jersey patch all verified correct across multiple teams). Ported
+// here from the standalone test scripts that proved each piece.
+//
+// The 4 repurposed bowls, their BowlGame table row, and their ORIGINAL
+// presentation values - needed both to know what to write for the
+// "convert" direction (native CFP rows 7-10 supply those), and to
+// revert back to exactly this on the "revert" direction. Captured
+// directly from a real, unmodified save via check-bowl-logo.mjs and
+// check-bowlgame-reference.mjs - not guessed.
+const CFP_REPURPOSED_BOWLS = [
+  {
+    name: 'Boca Raton Bowl', row: 5, nativeRow: 7, slot: 4,
+    original: { Name: 'Boca Raton Bowl', AssetName: 'Boca_Raton_Bowl', BowlLogoId: 21,
+      BOWL_PRIMARY_COLOR_R: 210, BOWL_PRIMARY_COLOR_G: 20, BOWL_PRIMARY_COLOR_B: 55,
+      BOWL_SECONDARY_COLOR_R: 191, BOWL_SECONDARY_COLOR_G: 6, BOWL_SECONDARY_COLOR_B: 49,
+      BOWL_TERTIARY_COLOR_R: 243, BOWL_TERTIARY_COLOR_G: 195, BOWL_TERTIARY_COLOR_B: 0,
+      IsPlayoffBowl: false, PlayoffBracketSlot: 0 },
+  },
+  {
+    name: 'Cure Bowl', row: 18, nativeRow: 8, slot: 5,
+    original: { Name: 'Cure Bowl', AssetName: 'Cure_Bowl', BowlLogoId: 23,
+      BOWL_PRIMARY_COLOR_R: 233, BOWL_PRIMARY_COLOR_G: 128, BOWL_PRIMARY_COLOR_B: 168,
+      BOWL_SECONDARY_COLOR_R: 18, BOWL_SECONDARY_COLOR_G: 25, BOWL_SECONDARY_COLOR_B: 33,
+      BOWL_TERTIARY_COLOR_R: 255, BOWL_TERTIARY_COLOR_G: 255, BOWL_TERTIARY_COLOR_B: 255,
+      IsPlayoffBowl: false, PlayoffBracketSlot: 0 },
+  },
+  {
+    name: 'Gasparilla Bowl', row: 25, nativeRow: 9, slot: 6,
+    original: { Name: 'Gasparilla Bowl', AssetName: 'Gasparilla_Bowl', BowlLogoId: 28,
+      BOWL_PRIMARY_COLOR_R: 0, BOWL_PRIMARY_COLOR_G: 97, BOWL_PRIMARY_COLOR_B: 104,
+      BOWL_SECONDARY_COLOR_R: 243, BOWL_SECONDARY_COLOR_G: 108, BOWL_SECONDARY_COLOR_B: 35,
+      BOWL_TERTIARY_COLOR_R: 99, BOWL_TERTIARY_COLOR_G: 101, BOWL_TERTIARY_COLOR_B: 106,
+      IsPlayoffBowl: false, PlayoffBracketSlot: 0 },
+  },
+  {
+    name: 'New Orleans Bowl', row: 37, nativeRow: 10, slot: 7,
+    original: { Name: 'New Orleans Bowl', AssetName: 'New_Orleans_Bowl', BowlLogoId: 39,
+      BOWL_PRIMARY_COLOR_R: 60, BOWL_PRIMARY_COLOR_G: 25, BOWL_PRIMARY_COLOR_B: 82,
+      BOWL_SECONDARY_COLOR_R: 60, BOWL_SECONDARY_COLOR_G: 174, BOWL_SECONDARY_COLOR_B: 73,
+      BOWL_TERTIARY_COLOR_R: 0, BOWL_TERTIARY_COLOR_G: 102, BOWL_TERTIARY_COLOR_B: 73,
+      IsPlayoffBowl: false, PlayoffBracketSlot: 0 },
+  },
+];
+const CFP_PRESENTATION_FIELDS = ['AssetName', 'BowlLogoId', 'BOWL_PRIMARY_COLOR_R', 'BOWL_PRIMARY_COLOR_G',
+  'BOWL_PRIMARY_COLOR_B', 'BOWL_SECONDARY_COLOR_R', 'BOWL_SECONDARY_COLOR_G', 'BOWL_SECONDARY_COLOR_B',
+  'BOWL_TERTIARY_COLOR_R', 'BOWL_TERTIARY_COLOR_G', 'BOWL_TERTIARY_COLOR_B'];
+const BOWL_GAME_UNIQUE_ID = 902037496;
+const CFP_PREFERENCE_PATH = path.join(__dirname, 'cfpConversionPreference.json');
+
+function readCfpConversionPreference() {
+  try {
+    return JSON.parse(fs.readFileSync(CFP_PREFERENCE_PATH, 'utf8'));
+  } catch {
+    return { skipPrompt: false };
+  }
+}
+function writeCfpConversionPreference(pref) {
+  fs.writeFileSync(CFP_PREFERENCE_PATH, JSON.stringify(pref));
+}
+
+// Stadium fix: raw 4-byte copy from the host team's own permanent
+// Team.Stadium field into the SeasonGame record - reference-type
+// fields can't be reliably read/written through the schema API (see
+// SESSION_FINDINGS.md - Stadium is a polymorphic/Enum reference type
+// this version of madden-franchise can't resolve), but a raw byte copy
+// sidesteps that entirely, proven directly in-game.
+async function applyStadiumFix(outputPath, schemaDirectory, log) {
+  const { openSave, repackSave, REGULAR_BOWLS, TABLE_UNIQUE_IDS } = await import('./playoffEditorCore.mjs');
+  const Franchise = (await import('madden-franchise')).default;
+  const { rowToName } = await import('./teamLookup.mjs');
+
+  const franchise = await Franchise.create(outputPath, {
+    schemaDirectory,
+    schemaOverride: { major: 472, minor: 0, gameYear: 27, path: path.join(schemaDirectory, '472_0.gz') },
+  });
+  const seasonMatches = franchise.tables.filter(t => t.header.uniqueId === TABLE_UNIQUE_IDS.SeasonGame);
+  const seasonTable = seasonMatches.reduce((a, r) => (r.header.recordCapacity > a.header.recordCapacity ? r : a));
+  await seasonTable.readRecords();
+  const teamMatches = franchise.tables.filter(t => t.header.uniqueId === TABLE_UNIQUE_IDS.Team);
+  const teamTable = teamMatches.reduce((a, r) => (r.header.recordCapacity > a.header.recordCapacity ? r : a));
+  await teamTable.readRecords();
+
+  function getFieldObj(rec, key) { return (rec._fieldsArray || []).find(f => f._key === key); }
+  function teamNameOf(rec, key) {
+    const f = getFieldObj(rec, key);
+    const ref = f?.referenceData;
+    return ref ? rowToName(ref.rowNumber) : null;
+  }
+  function findTeamRow(teamName) {
+    for (let i = 0; i < teamTable.records.length; i++) {
+      let name;
+      try { name = rowToName(i); } catch { continue; }
+      if (name === teamName) return i;
+    }
+    return null;
+  }
+
+  const { unpackedFileContents, recordsStart, recordSize } = await openSave(outputPath, schemaDirectory);
+  const buf = Buffer.from(unpackedFileContents);
+  const teamTableOffset = teamTable.offset + teamTable.header.headerSize;
+  const teamRecordSize = teamTable.header.record1Size;
+
+  let fixedCount = 0;
+  for (const bowl of CFP_REPURPOSED_BOWLS) {
+    const bowlInfo = REGULAR_BOWLS.find(b => b.name === bowl.name);
+    const seasonRecordIndex = bowlInfo?.record;
+    if (seasonRecordIndex === undefined) { log.push(`  CFP presentation: could not resolve ${bowl.name}'s SeasonGame record - stadium not changed.`); continue; }
+    const rec = seasonTable.records[seasonRecordIndex];
+    if (!rec) continue;
+    // Confirmed empirically against a real applied save: HomeTeam (not
+    // the swap-aware AwayTeam) is the correct host field for these
+    // specific repurposed-bowl records - see SESSION_FINDINGS.md.
+    const hostTeam = teamNameOf(rec, 'HomeTeam');
+    if (!hostTeam) { log.push(`  CFP presentation: could not determine host team for ${bowl.name} - stadium not changed.`); continue; }
+    const teamRow = findTeamRow(hostTeam);
+    if (teamRow === null) { log.push(`  CFP presentation: could not find ${hostTeam} in Team table - stadium not changed.`); continue; }
+    const teamRec = teamTable.records[teamRow];
+    const stadiumField = getFieldObj(teamRec, 'Stadium');
+    if (!stadiumField || !stadiumField.value || /^0+$/.test(stadiumField.value)) { log.push(`  CFP presentation: ${hostTeam}'s own Stadium field is empty - stadium not changed.`); continue; }
+    const stadiumOffsetInfo = teamRec._offsetTable?.find(f => f.name === 'Stadium');
+    if (!stadiumOffsetInfo) continue;
+    const byteOffset = stadiumOffsetInfo.offset / 8;
+    const sourceOffset = teamTableOffset + teamRow * teamRecordSize + byteOffset;
+    const targetOffset = recordsStart + seasonRecordIndex * recordSize + 4; // confirmed: Stadium is byte 4, 4 bytes, on SeasonGame
+    buf.copy(buf, targetOffset, sourceOffset, sourceOffset + 4);
+    fixedCount++;
+    log.push(`  CFP presentation: ${bowl.name} now uses ${hostTeam}'s real home stadium.`);
+  }
+
+  if (fixedCount > 0) {
+    const originalRawBuf = fs.readFileSync(outputPath);
+    const finalBuf = repackSave(originalRawBuf, buf);
+    fs.writeFileSync(outputPath, finalBuf);
+  }
+}
+
+// BowlGame field writes (Name/AssetName/BowlLogoId/colors/IsPlayoffBowl/
+// PlayoffBracketSlot) - all plain scalar fields, safe via ordinary
+// schema-API property assignment + franchise.save(), unlike Stadium.
+// Needs the bowl's own SeasonGame record too, to resolve which
+// BowlGame record it's using for each of the 4 slots.
+async function writeBowlGamePresentation(outputPath, schemaDirectory, mode, log) {
+  const Franchise = (await import('madden-franchise')).default;
+  const franchise = await Franchise.create(outputPath, {
+    schemaDirectory,
+    schemaOverride: { major: 472, minor: 0, gameYear: 27, path: path.join(schemaDirectory, '472_0.gz') },
+  });
+  const matches = franchise.tables.filter(t => t.header.uniqueId === BOWL_GAME_UNIQUE_ID);
+  const bowlTable = matches.reduce((a, r) => (r.header.recordCapacity > a.header.recordCapacity ? r : a));
+  await bowlTable.readRecords();
+
+  for (const bowl of CFP_REPURPOSED_BOWLS) {
+    const rec = bowlTable.records[bowl.row];
+    if (mode === 'convert') {
+      const nativeRec = bowlTable.records[bowl.nativeRow];
+      rec['Name'] = 'CFP First Round';
+      rec['IsPlayoffBowl'] = true;
+      rec['PlayoffBracketSlot'] = bowl.slot;
+      for (const field of CFP_PRESENTATION_FIELDS) {
+        try { rec[field] = nativeRec[field]; } catch { /* skip field this schema doesn't have */ }
+      }
+      log.push(`  CFP presentation: ${bowl.name} now presents as a true CFP First Round game (logo, jersey patch, field markings).`);
+    } else {
+      for (const [field, value] of Object.entries(bowl.original)) {
+        rec[field] = value;
+      }
+      log.push(`  CFP presentation: ${bowl.name} reverted back to its original presentation.`);
+    }
+  }
+  await franchise.save(outputPath);
+}
+
+async function applyCfpConversion(outputPath, schemaDirectory, log) {
+  await applyStadiumFix(outputPath, schemaDirectory, log);
+  await writeBowlGamePresentation(outputPath, schemaDirectory, 'convert', log);
+}
+async function revertCfpConversion(outputPath, schemaDirectory, log) {
+  await writeBowlGamePresentation(outputPath, schemaDirectory, 'revert', log);
+}
+
+// Fixes a PERSISTENT, unrelated issue - some external tool/mod (not
+// ours) mass-relabeled 13 real, ordinary bowl games to "CFP First
+// Round" text at some point in this dynasty's history, and since the
+// underlying corruption is baked into this save lineage rather than a
+// one-time event, it keeps resurfacing on fresh saves rather than
+// staying fixed. Runs on EVERY Apply, regardless of bracket size -
+// unlike the 4 repurposed bowls (5/18/25/37), which follow their own
+// separate convert/revert logic tied to the 16-team format specifically.
+// Confirmed via dump-all-bowlgame-flags.mjs: exactly these 13 rows,
+// consistently. The IsPlayoffBowl safety check (same as the standalone
+// fix-bowl-names-v2.mjs) means this can never accidentally revert an
+// actual playoff game even if the row numbers ever shifted.
+const UNRELATED_MISLABELED_BOWLS = {
+  6: 'Citrus Bowl',
+  19: "Duke's Mayo Bowl",
+  21: 'Famous Idaho Potato Bowl',
+  23: 'First Responder Bowl',
+  24: 'Frisco Bowl',
+  26: 'Gator Bowl',
+  30: 'Independence Bowl',
+  34: 'Music City Bowl',
+  35: 'Myrtle Beach Bowl',
+  36: 'New Mexico Bowl',
+  40: 'Reliaquest Bowl',
+  42: 'Sun Bowl',
+  44: 'Xbox Bowl',
+};
+async function restoreUnrelatedMislabeledBowls(outputPath, schemaDirectory, log) {
+  const Franchise = (await import('madden-franchise')).default;
+  const franchise = await Franchise.create(outputPath, {
+    schemaDirectory,
+    schemaOverride: { major: 472, minor: 0, gameYear: 27, path: path.join(schemaDirectory, '472_0.gz') },
+  });
+  const matches = franchise.tables.filter(t => t.header.uniqueId === BOWL_GAME_UNIQUE_ID);
+  const bowlTable = matches.reduce((a, r) => (r.header.recordCapacity > a.header.recordCapacity ? r : a));
+  await bowlTable.readRecords();
+
+  let fixedCount = 0;
+  for (const [indexStr, correctName] of Object.entries(UNRELATED_MISLABELED_BOWLS)) {
+    const index = parseInt(indexStr, 10);
+    const rec = bowlTable.records[index];
+    if (!rec) continue;
+    let isPlayoff = false;
+    try { isPlayoff = rec['IsPlayoffBowl'] === true; } catch { /* ignore */ }
+    if (isPlayoff) continue; // never touch a real playoff-flagged row
+    let currentName = null;
+    try { currentName = rec['Name']; } catch { /* ignore */ }
+    if (currentName === correctName) continue; // already correct, nothing to do
+    rec['Name'] = correctName;
+    fixedCount++;
+  }
+  if (fixedCount > 0) {
+    await franchise.save(outputPath);
+    log.push(`  Restored ${fixedCount} unrelated bowl name(s) that had been mislabeled "CFP First Round" (not caused by this tool - see README).`);
+  }
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 900,
@@ -888,6 +1128,37 @@ ipcMain.handle('get-round1-status-12', async (event, { inputPath }) => {
   }
 });
 
+ipcMain.handle('get-cfp-conversion-preference', async () => {
+  return readCfpConversionPreference();
+});
+
+ipcMain.handle('set-cfp-conversion-preference', async (event, pref) => {
+  writeCfpConversionPreference(pref);
+  return { success: true };
+});
+
+// Checks whether a save currently has the 4 repurposed bowls converted
+// to CFP First Round presentation, so the renderer knows whether to
+// offer a revert prompt when switching away from a 16-team format.
+ipcMain.handle('check-cfp-conversion-state', async (event, { inputPath }) => {
+  try {
+    const Franchise = (await import('madden-franchise')).default;
+    const schemaDirectory = path.join(__dirname, 'schemas');
+    const franchise = await Franchise.create(inputPath, {
+      schemaDirectory,
+      schemaOverride: { major: 472, minor: 0, gameYear: 27, path: path.join(schemaDirectory, '472_0.gz') },
+    });
+    const matches = franchise.tables.filter(t => t.header.uniqueId === BOWL_GAME_UNIQUE_ID);
+    const bowlTable = matches.reduce((a, r) => (r.header.recordCapacity > a.header.recordCapacity ? r : a));
+    await bowlTable.readRecords();
+    const rec = bowlTable.records[CFP_REPURPOSED_BOWLS[0].row];
+    const isConverted = rec['IsPlayoffBowl'] === true;
+    return { success: true, isConverted };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
 ipcMain.handle('run-edit', async (event, { inputPath, outputPath, config }) => {
   const log = [];
   try {
@@ -1195,6 +1466,8 @@ ipcMain.handle('run-edit', async (event, { inputPath, outputPath, config }) => {
             const teamTable2 = resolveTable(franchise2, TUI.Team, 'Team');
             await teamTable2.readRecords();
             const POLLS = ['CFPPoll', 'CoachesPoll', 'MediaPoll'];
+            const rankedRows = new Set();
+
             for (const { row, seed: s } of seedAssignments) {
               const rec = teamTable2.records[row];
               if (!rec) { log.push(`Rank sync - row ${row}: no record found, skipped.`); continue; }
@@ -1204,8 +1477,61 @@ ipcMain.handle('run-edit', async (event, { inputPath, outputPath, config }) => {
                 rec[`${poll}_CurrentRank`] = s;
               }
               rec['TeamRank'] = s;
+              rankedRows.add(row);
               log.push(`Rank sync - ${rowToName(row)}: rank -> ${s} (was ${before}).`);
             }
+
+            // Fill ranks past the bracket cutoff (17-25 for a 16-team
+            // bracket, generalizing to "up to 25 total" for any size)
+            // with the next-best teams by our own ranking engine, then
+            // EXPLICITLY zero out (NR - confirmed via the schema that 0
+            // is the real "not ranked" sentinel, same as every actual
+            // AP/CFP-style poll) every other team in the Team table.
+            // This is the actual fix for the duplicate-rank-number bug
+            // (e.g. two teams both showing "15") - the old code above
+            // only ever touched bracket teams and left everyone else's
+            // stale native rank in place, which is exactly what collided
+            // with our forced numbers. Explicitly touching every team,
+            // not just the ones we care about, is what actually
+            // eliminates that.
+            if (config.rankingOrder && config.rankingOrder.length) {
+              let nextRank = seedAssignments.length + 1;
+              for (const teamName of config.rankingOrder) {
+                if (nextRank > 25) break;
+                const row = teamRow(teamName);
+                if (row === null || row === undefined || rankedRows.has(row)) continue;
+                const rec = teamTable2.records[row];
+                if (!rec) continue;
+                for (const poll of POLLS) {
+                  rec[`${poll}_LastWeeksRank`] = rec[`${poll}_CurrentRank`];
+                  rec[`${poll}_CurrentRank`] = nextRank;
+                }
+                rec['TeamRank'] = nextRank;
+                rankedRows.add(row);
+                log.push(`Rank sync - ${teamName}: rank -> ${nextRank} (next-best outside the bracket).`);
+                nextRank++;
+              }
+            }
+
+            let clearedCount = 0;
+            const UNRANKED_SENTINEL = 255; // confirmed via real in-game screenshot: 0 sorts to the TOP (treated as "best"), not bottom - it's just the schema's default/uninitialized value, not a real NR signal. 255 (the field's actual max) sorts last instead.
+            for (let row = 0; row < teamTable2.records.length; row++) {
+              if (rankedRows.has(row)) continue;
+              let name;
+              try { name = rowToName(row); } catch { continue; }
+              if (!name) continue; // not a real team row
+              const rec = teamTable2.records[row];
+              let alreadySentinel = true;
+              try { alreadySentinel = rec['CFPPoll_CurrentRank'] === UNRANKED_SENTINEL && rec['TeamRank'] === UNRANKED_SENTINEL; } catch { alreadySentinel = false; }
+              if (alreadySentinel) continue;
+              for (const poll of POLLS) {
+                rec[`${poll}_LastWeeksRank`] = rec[`${poll}_CurrentRank`];
+                rec[`${poll}_CurrentRank`] = UNRANKED_SENTINEL;
+              }
+              rec['TeamRank'] = UNRANKED_SENTINEL;
+              clearedCount++;
+            }
+            if (clearedCount > 0) log.push(`Rank sync - pushed ${clearedCount} other team(s) to the bottom (unranked), eliminating stale native ranks that could collide with the numbers above.`);
           } else {
             log.push('Rank sync - seedAssignments was present but empty after filtering, skipped.');
           }
@@ -1244,6 +1570,41 @@ ipcMain.handle('run-edit', async (event, { inputPath, outputPath, config }) => {
       log.push(`Verified: no changes outside this run's allowed records (${[...allowedRecords].sort((a, b) => a - b).join(', ')}).`);
     } catch (err) {
       log.push(`WARNING - could not run the collateral-damage verification check: ${err.message}. The output file was written but hasn't been double-checked for out-of-scope changes.`);
+    }
+
+    // --- CFP First Round presentation convert/revert ---
+    // Confirmed working end-to-end via live in-game testing (stadium,
+    // playoff status, field markings, announcer commentary, logo, and
+    // jersey patch all verified correct). Convert only runs on the
+    // Round 1-writing pass of a 16-team bracket (not the Round 2
+    // reseed pass - the 4 bowls only need this done once). Revert only
+    // runs when a different bracket size is explicitly told to.
+    if (config.bracketSize === 16 && wroteRound1Games && config.convertToPlayoffPresentation) {
+      log.push('');
+      log.push('Converting the 4 repurposed bowls to CFP First Round presentation:');
+      try {
+        await applyCfpConversion(outputPath, path.join(__dirname, 'schemas'), log);
+      } catch (err) {
+        log.push(`  WARNING - CFP presentation conversion failed: ${err.message}. The bracket itself was still written correctly - this only affects the extra presentation polish.`);
+      }
+    } else if (config.bracketSize !== 16 && config.revertPlayoffPresentation) {
+      log.push('');
+      log.push('Reverting the 4 repurposed bowls back to their original presentation:');
+      try {
+        await revertCfpConversion(outputPath, path.join(__dirname, 'schemas'), log);
+      } catch (err) {
+        log.push(`  WARNING - CFP presentation revert failed: ${err.message}.`);
+      }
+    }
+
+    // Always runs, every Apply, every bracket size - independent of
+    // the above. Fixes the persistent unrelated mislabeling issue on
+    // 13 other bowl games (not the 4 repurposed ones, which are
+    // handled above according to bracket size/user choice).
+    try {
+      await restoreUnrelatedMislabeledBowls(outputPath, path.join(__dirname, 'schemas'), log);
+    } catch (err) {
+      log.push(`  WARNING - could not check/restore unrelated bowl names: ${err.message}.`);
     }
 
     return { success: true, log };

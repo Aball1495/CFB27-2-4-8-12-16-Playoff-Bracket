@@ -300,6 +300,87 @@
   </div>
 </div>
 
+<!-- CFP First Round presentation conversion prompt - shown at Apply time
+     for 16-team brackets, unless the user has checked "don't ask again". -->
+<div id="cfpConvertOverlay" style="
+  position: fixed; inset: 0; background: rgba(0,0,0,0.75);
+  display: none; align-items: center; justify-content: center;
+  z-index: 9999; font-family: inherit;
+">
+  <div style="
+    background: #1a1a1a; color: #eee; max-width: 560px; width: 90%;
+    border-radius: 8px; padding: 28px; box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  ">
+    <h2 style="margin: 0 0 12px 0; font-size: 1.3em;">Switch the 4 extra Round 1 games to CFP First Round?</h2>
+
+    <p style="line-height: 1.5; margin: 0 0 16px 0;">
+      Your 16-team bracket borrows 4 regular bowl games (Boca Raton, New
+      Orleans, Cure, Gasparilla) as extra Round 1 slots. We can make
+      those 4 games actually present as true CFP First Round games -
+      confirmed working in-game: the correct team's real home stadium,
+      the CFP logo and jersey patch instead of the bowl's own branding,
+      and the announcers/field markings correctly calling it a playoff
+      game instead of a regular bowl.
+    </p>
+
+    <p style="line-height: 1.5; margin: 0 0 20px 0; color: #aaa; font-size: 0.9em;">
+      Saying no leaves those 4 games exactly as they'd normally look -
+      still fully functional as part of your bracket, just branded as
+      their original bowl instead of a playoff game.
+    </p>
+
+    <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 20px; font-size: 0.9em; color: #aaa;">
+      <input type="checkbox" id="cfpConvertDontAskAgain">
+      Don't ask me again (until I switch away from 16-team and back)
+    </label>
+
+    <div style="display: flex; gap: 10px; justify-content: flex-end;">
+      <button id="cfpConvertNoBtn" style="
+        padding: 10px 18px; background: #333; color: #ccc; border: none;
+        border-radius: 4px; cursor: pointer;
+      ">No, leave them as bowls</button>
+      <button id="cfpConvertYesBtn" style="
+        padding: 10px 18px; background: #2d7d46; color: #fff; border: none;
+        border-radius: 4px; cursor: pointer; font-weight: bold;
+      ">Yes, make them CFP games</button>
+    </div>
+  </div>
+</div>
+
+<!-- CFP First Round presentation revert prompt - shown at Apply time for
+     any non-16-team bracket, if the save currently has the conversion. -->
+<div id="cfpRevertOverlay" style="
+  position: fixed; inset: 0; background: rgba(0,0,0,0.75);
+  display: none; align-items: center; justify-content: center;
+  z-index: 9999; font-family: inherit;
+">
+  <div style="
+    background: #1a1a1a; color: #eee; max-width: 560px; width: 90%;
+    border-radius: 8px; padding: 28px; box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  ">
+    <h2 style="margin: 0 0 12px 0; font-size: 1.3em;">Revert the 4 CFP-branded bowl games?</h2>
+
+    <p style="line-height: 1.5; margin: 0 0 20px 0;">
+      This save currently has Boca Raton, New Orleans, Cure, and
+      Gasparilla set up to present as CFP First Round games. Since
+      you're building a bracket that doesn't use them that way this
+      time, we can switch them back to their normal bowl presentation
+      (their own stadium branding, logo, and jersey patch).
+    </p>
+
+    <div style="display: flex; gap: 10px; justify-content: flex-end;">
+      <button id="cfpRevertNoBtn" style="
+        padding: 10px 18px; background: #333; color: #ccc; border: none;
+        border-radius: 4px; cursor: pointer;
+      ">No, leave them as-is</button>
+      <button id="cfpRevertYesBtn" style="
+        padding: 10px 18px; background: #2d7d46; color: #fff; border: none;
+        border-radius: 4px; cursor: pointer; font-weight: bold;
+      ">Yes, revert them</button>
+    </div>
+  </div>
+</div>
+
 <script>
 (function () {
   const overlay = document.getElementById('coachProtectOverlay');
@@ -393,6 +474,52 @@
     skipBtn.textContent = 'Skip for now';
     statusEl.textContent = '';
     overlay.style.display = 'flex';
+  };
+})();
+
+// CFP First Round presentation prompts - two simple Promise-based
+// modals, following the same overlay styling as the coach-protect
+// popup above but each just resolving true/false based on which
+// button gets clicked.
+(function () {
+  const convertOverlay = document.getElementById('cfpConvertOverlay');
+  const convertDontAsk = document.getElementById('cfpConvertDontAskAgain');
+  const convertYesBtn = document.getElementById('cfpConvertYesBtn');
+  const convertNoBtn = document.getElementById('cfpConvertNoBtn');
+
+  window.showCfpConvertPrompt = function () {
+    return new Promise((resolve) => {
+      convertDontAsk.checked = false;
+      convertOverlay.style.display = 'flex';
+      const onYes = () => { cleanup(); resolve({ convert: true, dontAskAgain: convertDontAsk.checked }); };
+      const onNo = () => { cleanup(); resolve({ convert: false, dontAskAgain: convertDontAsk.checked }); };
+      function cleanup() {
+        convertOverlay.style.display = 'none';
+        convertYesBtn.removeEventListener('click', onYes);
+        convertNoBtn.removeEventListener('click', onNo);
+      }
+      convertYesBtn.addEventListener('click', onYes);
+      convertNoBtn.addEventListener('click', onNo);
+    });
+  };
+
+  const revertOverlay = document.getElementById('cfpRevertOverlay');
+  const revertYesBtn = document.getElementById('cfpRevertYesBtn');
+  const revertNoBtn = document.getElementById('cfpRevertNoBtn');
+
+  window.showCfpRevertPrompt = function () {
+    return new Promise((resolve) => {
+      revertOverlay.style.display = 'flex';
+      const onYes = () => { cleanup(); resolve(true); };
+      const onNo = () => { cleanup(); resolve(false); };
+      function cleanup() {
+        revertOverlay.style.display = 'none';
+        revertYesBtn.removeEventListener('click', onYes);
+        revertNoBtn.removeEventListener('click', onNo);
+      }
+      revertYesBtn.addEventListener('click', onYes);
+      revertNoBtn.addEventListener('click', onNo);
+    });
   };
 })();
 </script>
@@ -2969,6 +3096,35 @@ document.getElementById('btnApply').addEventListener('click', async () => {
   for (let i = 0; i < bracketSize; i++) {
     const name = getSeedName(i);
     if (name) config.seedAssignments.push({ team: name, seed: i + 1 });
+  }
+
+  // CFP First Round presentation - convert prompt for 16-team, revert
+  // prompt for any other size if this save currently has it converted.
+  // Fires at Apply time specifically (not at format-selection), so the
+  // decision is tied to the actual write, same as everything else here.
+  if (bracketSize === 16) {
+    const pref = await window.api.getCfpConversionPreference();
+    if (pref.skipPrompt) {
+      config.convertToPlayoffPresentation = !!pref.convertAnswer;
+    } else {
+      const { convert, dontAskAgain } = await window.showCfpConvertPrompt();
+      config.convertToPlayoffPresentation = convert;
+      if (dontAskAgain) {
+        await window.api.setCfpConversionPreference({ skipPrompt: true, convertAnswer: convert });
+      }
+    }
+  } else {
+    const stateResult = await window.api.checkCfpConversionState({ inputPath });
+    if (stateResult.success && stateResult.isConverted) {
+      const revert = await window.showCfpRevertPrompt();
+      config.revertPlayoffPresentation = revert;
+      if (revert) {
+        // Reverting always resets the "don't ask again" preference -
+        // the next 16-team Apply should ask fresh, not silently
+        // re-convert based on a choice made for a previous bracket.
+        await window.api.setCfpConversionPreference({ skipPrompt: false });
+      }
+    }
   }
 
   const outputPath = await window.api.pickOutputLocation('DYNASTY-BRACKET-OUTPUT.sav');
