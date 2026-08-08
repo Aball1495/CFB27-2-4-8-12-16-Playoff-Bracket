@@ -21,7 +21,7 @@ const TEAM_COLORS = {
   'Houston': ['#C8102E', '#76232F', '#B2B4B2'], // red, dark red, gray
   'Memphis': ['#003087', '#898D8D', '#F8992E'], // blue, gray, orange
   'Navy': ['#00205B', '#C5B783'], // navy, gold
-  'SMU': ['#0033A0', '#C8102E'], // blue, red
+  'SMU': ['#C8102E', '#0033A0'], // red, blue
   'Temple': ['#9D2235', '#FFCD00', '#8A8D8F', '#C1C6C8', '#000000', '#FFFFFF'], // cherry, yellow, metallic silver, silver, black, white
   'Tulane': ['#006747', '#43B02A', '#418FDE', '#FFFFFF', '#000000'], // dark green, kelly green, blue, white, black
   'Tulsa': ['#002D72', '#C8102E', '#C5B783', '#F3D54E', '#84754E'], // navy, red, old gold, yellow, metallic gold
@@ -104,7 +104,7 @@ const TEAM_COLORS = {
 
   // --- Mountain West ---
   'Air Force': ['#003087', '#8A8D8F'], // blue, silver
-  'Boise State': ['#D64309', '#0033A0'], // orange, blue
+  'Boise State': ['#0033A0', '#D64309'], // blue, orange
   'Colorado State': ['#1E4D2B', '#C8C372'], // green, gold
   'Fresno State': ['#DB0032', '#002E6D'],
   "Hawai'i": ['#024731', '#C8C8C8', '#000000'], // green, silver, black
@@ -170,7 +170,7 @@ const TEAM_COLORS = {
   'North Dakota State': ['#0A5640', '#FFC72A'], // green, yellow
   'Sacramento State': ['#043927', '#C4B581'],
   'Sam Houston': ['#FE5100', '#FFFFFF'],
-  'UMass': ['#971B2F', '#572932'],
+  'UMass': ['#840028', '#212721'], // maroon, black (per UMass's own site - corrected from a bad duplicate-maroon entry)
   'Jacksonville State': ['#CC0000', '#FFFFFF'],
 };
 

@@ -1,88 +1,37 @@
-# CFB27 Playoff Bracket Tool
+# Ball14's CFB27 Playoff Bracket Tool
 
-This tool lets you build your own custom playoff bracket in your College
-Football 27 dynasty — pick your own teams and seeds instead of only using
-whatever the game gives you.
+Build a custom playoff bracket in your College Football 27 dynasty — pick your own teams, seeds, and format instead of only using what the game gives you. Supports 2, 4, 8, 12, and 16-team brackets with full BCS-style ranking, conference detection, and bracket history.
 
-## ⚠️ Step 0: Make a backup copy of your save first
+---
 
-Before you touch anything, **copy your save file somewhere safe.**
+## ⚠️ Your save is protected automatically
 
-This tool never changes your original file — every time you click a
-button that saves something, it makes a brand new file instead. But
-things can still go wrong (wrong button clicked, wrong file picked), and
-you really don't want to lose your whole dynasty over a mistake. Just
-copy the file. Takes 10 seconds. Do it now.
+Every time you click Apply, the tool **backs up your original save to a Playoff folder** (inside your Saves directory) before overwriting it. You don't need to do this manually anymore — but keeping your own backup of your dynasty save somewhere safe is still a good habit.
+
+---
 
 ## How to open it
 
 1. Unzip this folder wherever you want.
 2. Double-click `CFB27 Playoff Editor.exe`.
-3. Windows might show a scary blue screen that says "Windows protected
-your PC." **This is normal** — it just means this program isn't from
-a big company, not that anything's actually wrong. Click **More info**,
-then click **Run anyway**.
+3. Windows may show a blue "Windows protected your PC" screen. Click **More info**, then **Run anyway**. This is normal for apps not from major publishers — nothing is wrong.
 
-## Flipping the switch for a user-created coach
+---
 
-After you load your save file, a popup might show up warning you about a
-known bug — but only if it actually applies to you. If your coach isn't
-at risk, you won't see anything at all. Here's what it's about, in plain
-terms, in case you do see it:
+## The flow: three steps every season
 
-**The problem:** if you ever retire your own coach (the one you created
-and are currently playing as), the game can **delete that coach** and
-lock you out of your own team. You won't be able to pick that team to
-play as anymore.
+The sidebar on the left walks you through this automatically, but here's the full picture:
 
-**The fix:** click the button in the popup. It flips one setting on
-your coach so this can't happen. In testing so far, this hasn't changed
-how a coach looks, plays, or performs — but that's based on limited
-testing, not a promise about every possible long-term effect. You'll
-pick where to save it, and it makes you a new, protected copy — your
-original file is never touched.
+### Step 1 — Conferences
 
-**Good to know: this can pop up again later, and that's normal.** It
-checks your coach fresh every time you load a save. If you create a
-brand new coach down the road, you'll see this popup again the next
-time you load with them — that's not a bug repeating, it's just doing
-its job again for the new coach.
+**Best time: Week 1 of Bowl Season**, right after Conference Championship games are played.
 
-If you don't want to deal with it right now, click "Skip for now" — you
-can come back to it later, there's no rush unless you're about to retire
-a coach.
+The tool has a built-in list of which teams belong to which conference. If your dynasty uses a custom realignment, that list might be wrong for you — which can mess up how teams qualify for the bracket.
 
-## If your dynasty has different conferences than normal
-
-**Best time to use the Conferences tool: Week 1 of Bowl Season** — right
-after Conference Championship games are actually played, but before you
-go build your bracket. Championship games need to already have real
-results for the tool to correctly figure out who won each conference. Too
-early (championships not played yet) and it can't crown anyone; the
-Conferences tool's detection and champion-crowning both depend on this
-timing, same as the bracket-building steps below.
-
-This tool has a built-in list of which team belongs to which conference.
-If you've moved teams around in your dynasty (realignment), that list
-might be wrong for you, which can mess up how teams qualify for the
-bracket.
-
-**You'll know this is happening if** you see a warning message about a
-conference not matching.
-
-**Easiest fix:** in the tool's Conferences section, there's a button
-that says **"Detect conferences from this save's schedule."** Click it —
-it reads your actual save and figures out the real conferences for you.
-Double check the result looks right, then save it.
-
-The tool also has a small step-by-step helper right on this screen that
-tells you exactly where you are in this process (load a save → standings
-show up → fix conferences if needed → move to the Bracket tab) — if
-you're ever not sure what to do next, check there first.
-
-**If you want to do it by hand instead:** there's a file called
-`teamConferenceOverrides.json` next to the .exe. Open it and just list
-the teams that changed, like this:
+- Go to **Conferences** in the sidebar.
+- Load your save. Conference standings and detected champions populate automatically.
+- If the detected champions look wrong, click **Detect conferences from this save's schedule** and save the result. This is a one-time setup — you won't need to touch it again unless you change your realignment.
+- You can also edit `teamConferenceOverrides.json` directly if you prefer:
 
 ```json
 {
@@ -91,345 +40,207 @@ the teams that changed, like this:
 }
 ```
 
-Only list teams that are different from normal — everything else stays
-default. Check `teamConferenceOverrides.EXAMPLE.txt` for the full list
-of conference names you're allowed to use. Restart the app after you
-save your changes.
-
-## How to use the tool
-
-* You build a bracket (pick which teams play each other, and in what
-order) using the tool.
-* You click a button, and it makes a **new save file** with your bracket
-built in.
-* You load that new file in the actual game and keep playing.
-
-That's the whole loop. The tricky part is **timing** — see below.
-
-Once you've picked a bracket size, the tool also shows a small
-step-by-step guide right on screen that walks you through the exact
-sequence for that size — it highlights whichever step you're currently
-on as you move between tabs, so you don't have to keep this README open
-the whole time. The sections below are the full explanation behind those
-steps, for whenever you want more detail.
-
-### Timing matters — a lot
-
-You can't just build your bracket whenever you feel like it. The game
-only lets you set things up at specific moments in your season. If you
-do it too early or too late, it won't work right.
-
-Pick your bracket size below and follow those exact steps.
-
-#### If you're doing a 16-team bracket (this one takes two visits to the tool)
-
-The game only has room for 4 "real" bracket games in Round 1. To fit 8
-games (16 teams), the tool borrows 4 regular bowl games and quietly
-turns them into extra Round 1 games. The game doesn't know it's part of
-your bracket, so you have to come back a second time to set up Round 2
-yourself.
-
-**First visit — set up Round 1:**
-
-1. Play through Conference Championships.
-2. **Stop when you get to Bowl Week 1 and save** — no bowls played yet, including the
-borrowed ones.
-3. Build your 16 teams in the tool, **Apply \& Save**.
-4. **If your own team is one of the 16**, see "Retiring and rehiring your
-coach" below — this is visit #1 of 2 for that step.
-5. When you hit Apply, you'll be asked if you want the 4 repurposed
-bowls to present as real CFP First Round games (see the section
-below on this) - that changes what you'll actually see here:
-
-   * **If you said yes:** all 8 Round 1 games look and play like real
-playoff games — same logo, same field markings, same commentary,
-only playoff branding\* (see information below about NFL/College Shared Stadiums).
-   * **If you said no:** 4 will look like normal bracket games, and
-the other 4 will look like regular bowl games named:
-
-     * Boca Raton Bowl
-     * New Orleans Bowl
-     * Cure Bowl
-     * Gasparilla Bowl
-
-     The tool will tell you exactly which teams are in which bowl when
-you build the bracket, so you know what to look for either way.
-
-     **Second visit — set up Round 2 (Quarterfinals):**
-
-1. Once all 8 Round 1 games are done, open the tool again.
-2. Load the save from *after* you played those games (a different file
-than before).
-3. Click **Check Round 1 results** — it looks at who won and sets up the
-Quarterfinals for you automatically. **Double check it got the
-winners right** before moving on — if something looks wrong, fix it
-with the dropdown menus.
-4. Click **Apply Round 2 \& Save**.
-5. **If your own team survived into Round 2**, see "Retiring and
-rehiring your coach" below again — this is visit #2 of 2. Yes, even
-if you already did it after Round 1 — this is specifically because
-of how the game hard-codes byes between these two rounds. After this
-second time, everything advances naturally on its own.
-6. Load that file and keep playing — everything from here on happens on
-its own.
-
-   #### If you're doing a 12-team bracket (this one takes two visits to the tool)
-
-   Seeds 1-4 get a bye straight into the Quarterfinals. Seeds 5-12 play each
-other in Round 1. The game's own auto-advance does **not** hand out the
-Quarterfinal matchups correctly on its own — it currently pairs the wrong
-winner with the wrong bye seed — so just like the 16-team bracket above,
-you need to come back a second time and let the tool fix that pairing
-directly.
-
-   **First visit — set up Round 1 and the byes:**
-
-1. Play through Conference Championships.
-2. **Stop before Bowl Week starts** — no bowls played yet.
-3. Build your 12 teams in the tool, **Apply \& Save**. This sets up both
-Round 1 (5v12, 6v11, 7v10, 8v9) and the 4 byes (seeds 1-4) in one go.
-4. **If your own team is one of the 12**, see "Retiring and rehiring your
-coach" below — this is visit #1 of 2 for that step.
-5. Load that file and play all 4 Round 1 games.
-
-   **Second visit — fix the Quarterfinals:**
-
-1. Once all 4 Round 1 games are done, open the tool again, on the
-Bracket tab's "Round 2" section.
-2. Load the save from *after* you played those games (a different file
-than before).
-3. Click **Check Round 1 results** — it reads who actually won and lines
-each winner up against the correct bye seed (8/9's winner plays seed
-1, 7/10's plays seed 2, 6/11's plays seed 3, 5/12's plays seed 4).
-**Double check it got the winners right** before moving on.
-4. Click **Apply Round 2 \& Save**.
-5. **If your own team survived into the Quarterfinals**, see "Retiring
-and rehiring your coach" below again — this is visit #2 of 2, same as
-the 16-team bracket's second visit.
-6. Load that file and keep playing — Semis and Championship advance
-automatically from here.
-
-   #### If you're doing an 8-team bracket
-
-1. Play/sim through Conference Championships AND Bowl Week 1 (Round 1).
-2. **Stop at Bowl Week 2** — before the Quarterfinal games. The
-Quarterfinals are the 4 NY6 bowls: Sugar, Fiesta, Rose, and Peach.
-3. Build your 8 teams in the tool, **Apply \& Save**.
-4. **If your own team is one of the 8**, see "Retiring and rehiring your
-coach" below.
-5. Load the new file and keep playing — Semis and Championship advance
-automatically.
-
-   #### If you're doing a 4-team bracket
-
-1. Play/sim through Conference Championships, then Bowl Week 1 (Round 1),
-then Bowl Week 2 (Quarterfinals).
-2. **Stop at Bowl Week 3** — before the Semifinal games.
-3. Open the tool, load your save, pick your 4 teams, click **Apply \& Save**.
-4. **If your own team is one of the 4**, see "Retiring and rehiring your
-coach" below.
-5. Load the new file and keep playing. The Championship advances
-automatically after the Semifinals.
-
-   #### If you're doing a 2-team bracket (Championship game only)
-
-1. Play all the way to the National Championship.
-2. **Stop before playing it.**
-3. Pick your 2 teams in the tool, **Apply \& Save**.
-4. **If your own team is one of the 2**, see "Retiring and rehiring your
-coach" below.
-5. Load the file and play the Championship. That's the last game of the
-season, so there's nothing left to automate after this.
-
-   ### A couple of things the tool does automatically (you don't need to do anything, just know it's happening)
-
-* **If a team in your bracket was already scheduled in some random bowl
-game**, the tool automatically pulls them out and puts in a
-substitute team instead — so nobody's double-booked. You'll see lines
-in the log like "Dummy swap" when this happens. Totally normal, no
-action needed from you.
-
-  ### Always double check in-game after applying
-
-  After every Apply, load the new save and actually look at the bracket
-in-game before you keep playing — confirm the right teams landed in the
-right spots. The tool tells you what it did in its own log, but that log
-is just what the tool *thinks* happened — the real check is what the
-game itself shows you.
-
-  This matters more than it might sound like. We've occasionally seen
-cases where something displayed in the tool didn't match what was
-actually in the save, even though the underlying data turned out to be
-correct after checking carefully — so a quick look in-game is the
-cheapest way to catch anything unexpected before it affects your season.
-
-  The **Bracket View** tab (see below) is a fast way to do this check
-without leaving the tool.
-
-  ## Bracket View — see your whole bracket as a picture
-
-  There's a tab called **Bracket View** that draws your actual bracket as
-a real tree — team logos, seed numbers, colors, all of it — so you can
-see the whole thing at a glance instead of reading through game names.
-
-* It's **read-only** — looking at it never changes your save.
-* It automatically fills in as you Apply each round. Rounds that
-haven't happened yet show as "TBD."
-* There's a **Zoom slider** if you want to shrink it to fit your whole
-screen (handy for a screenshot) or blow it up for detail.
-* Normally it looks at whatever save is loaded at the top of the page,
-but there's also a **"Load a different save to view"** button if you
-want to check a specific output file (like a fresh Round 2 save)
-without disturbing what the rest of the tool is pointed at.
-* One thing to know: the bracket size it draws always matches whatever
-format you currently have selected on the Format tab — it doesn't
-detect the size from the file itself. If you loaded a save built for
-a different size, switch the format first.
-* Once a champion is decided, a **"Save Bracket"** button shows up —
-see Bracket History below.
-
-  ## Bracket History — keep a record of every season
-
-  Next to Bracket View is a **Bracket History** tab. Once a season's
-champion is decided, hit **Save Bracket** on the Bracket View tab and
-it gets filed away by year. Come back to the History tab any time and
-pick a year from the dropdown to see exactly what that season's bracket
-looked like, start to finish.
-
-  This is completely separate from your actual save file — it's just a
-small record the tool keeps for you (`bracketHistory.json`, sitting
-next to the .exe). Saving is manual, on purpose, so testing or
-re-running the tool doesn't spam this list — saving the same year again
-just replaces that year's entry.
-
-  ## CFP First Round presentation (16-team only)
-
-  Your 16-team bracket borrows 4 regular bowl games (Boca Raton, New
-Orleans, Cure, Gasparilla) as extra Round 1 slots, since the game only
-has room for 4 "real" playoff games natively. By default those 4 still
-*look* like regular bowl games on screen, even though they're
-functionally part of your bracket.
-
-  **When you hit Apply on a 16-team bracket, you'll be asked if you want
-to fix that.** Saying yes makes those 4 games actually present as true
-CFP First Round games:
-
-* The correct team's real home stadium, instead of the bowl's own
-neutral site
-* The CFP logo and jersey patch, instead of the bowl's own branding
-* Field markings and announcer commentary that correctly call it a
-playoff game, not a regular bowl
-
-  Saying no leaves those 4 games exactly as they'd normally look — still
-fully functional as part of your bracket, just branded as their
-original bowl. There's a "don't ask me again" checkbox if you want
-this to just happen automatically every time — it resets automatically
-if you switch to a different bracket size and come back, so you're
-never stuck with an old answer that no longer applies.
-
-  If you build a bracket of a *different* size afterward and this save
-still has the CFP conversion applied, the tool will ask if you want to
-revert those 4 bowls back to normal first.
-
-  **One known limitation:** if the higher seed hosting one of these 4
-games shares its stadium with an NFL team (Pittsburgh's Acrisure
-Stadium is the one we've confirmed), the field markings/branding won't
-show correctly there specifically — everything else (stadium selection
-itself, the logo, the jersey patch, the announcer commentary) still
-works. This appears to be a limitation of how that specific stadium's
-art assets are built, not something fixable through the save file —
-we don't expect this to affect many teams, since very few FBS programs
-share a stadium with an NFL team at all.
-
-  ## Retiring and rehiring your coach (if your team is in the bracket)
-
-  **This only matters if YOUR team is one of the teams in the bracket you
-just built.** If your team isn't in this particular bracket, skip this
-entirely.
-
-  After Applying, your own team's "Play Game" button can show the wrong
-opponent, or your team can look like it's missing from the Members tab.
-This is **not caused by this tool** — it's a separate issue on the
-game's side, tied to editing saves outside the game at all. Nothing is
-actually broken when this happens; your save and your data are fine,
-it's just the game's screen showing you outdated information. There's
-no fix for this on the save-file side — it doesn't leave any trace in
-the file itself, so no amount of editing can prevent it. The
-retire/rehire steps below are the only known workaround.
-
-  **The fix for the retire/rehire dance itself:** there's a full
-step-by-step guide with pictures posted in the Discord — **"User
-Created Coach Retirement Guide"**. Follow that guide's steps in order —
-it looks long, but that's mostly it explaining *why* each step matters.
-Once you've done it once, it's a few minutes.
-
-  **Remember: both 12-team and 16-team brackets need this done twice** —
-once after your first visit to the tool, and again after your second.
-Every other bracket size only needs it done once, after your one and
-only Apply.
-
-  The coach-safety part specifically (protecting a created coach before
-retiring them) is something you've **already got** just by using this
-tool — that's the popup described above. The guide also mentions a
-separate standalone tool called "Fix Coach Flag" (a `.bat` file), but
-that's only there for people who want just that one fix *without*
-using this whole bracket editor. If you're reading this README, you
-don't need it — skip straight to the guide's actual retire/rehire
-steps.
-
-  ## This tool checks itself for you
-
-  Every time you load a save, the tool quietly double-checks that the game
-hasn't changed in a way that would break it — things like making sure
-the internal parts it reads and writes still look the way they did when
-this tool was built.
-
-  **You won't see anything if everything's fine** — this check is silent
-and automatic, no button to click.
-
-  **If you ever see a red warning box saying something like "This save
-doesn't match what this tool expects"** — that means College Football 27
-has probably been updated since this tool was built, in a way that could
-make it read or write the wrong information without any other obvious
-sign something's wrong. If you see this warning:
-
-* **Don't trust the tool's results** until this is sorted out — the
-numbers or teams it shows you might be wrong.
-* Check the Discord to see if anyone's aware of the update and whether
-there's a newer version of this tool, or a different tool, that's been
-updated to match.
-* This tool may not get updated to fix this if it ever happens — treat
-the warning as a sign to look for an alternative rather than assume a
-fix is coming.
-
-  ## What's new in this update
-
-  **New: CFP First Round presentation for 16-team brackets.** See the
-section above — the 4 repurposed bowl games can now actually present as
-real playoff games (stadium, logo, jersey patch, field markings, and
-commentary), with a simple yes/no prompt and an easy revert if you
-switch bracket sizes. One known gap: if the hosting team shares its
-stadium with an NFL team (confirmed with Pittsburgh's Acrisure Stadium),
-the field markings specifically won't show correctly there — everything
-else still works fine. Looks like a limitation in how that particular
-stadium's art was built on EA's side, not something we can fix through
-the save file.
-
-  **Fixed: the CFP/Coaches/Media poll rankings could show duplicate or
-missing numbers.** Previously the tool only ever wrote ranks for the 16
-bracket teams and left everyone else alone — which meant a team outside
-your bracket could still be sitting on its own old rank from before,
-and if that happened to match one of your bracket's forced numbers,
-you'd see two teams both showing (for example) "15" in the rankings,
-with some other number missing entirely. Now every team gets a real,
-non-colliding rank: your bracket teams get their seed, the next-best 9
-teams by our own ranking fill out the rest of the Top 25, and every
-other team is explicitly pushed below 25th instead of being left with
-a stale leftover number.
-
-  ## Something went wrong / found a bug?
-
-  Post about it in the Discord. Screenshots really help — especially if
-you can show what the tool's own Log panel said it did, next to what
-actually happened in-game.
+Only list teams that differ from the defaults. See `teamConferenceOverrides.EXAMPLE.txt` for all valid conference names. Restart the app after saving changes.
 
+---
+
+### Step 2 — BCS Rankings
+
+- Go to **BCS Rankings** in the sidebar.
+- Rankings compute automatically when you load a save. The Top 25 shows on the left. Settings are on the right.
+- Adjust any weights you want, then hit **Run BCS Rankings** to see the updated Top 25 with movement indicators (▲/▼) showing what changed.
+- When you're happy with the rankings, hit **Write rankings to save** to update the in-game Top 25, or **Don't update** to skip and move on.
+
+Rankings are used by the bracket tool to auto-fill At-Large seeds and to assign poll ranks after an Apply.
+
+---
+
+### Step 3 — Bracket Tool
+
+Pick your bracket size, fill in the autobids and seeds, and apply. The sidebar tracks your progress through each sub-step.
+
+---
+
+## Bracket sizes and timing
+
+### 2-team
+
+Everything happens in one visit — Bowl Week 4. Load your save, pick your two finalists, apply. Championship game is set directly.
+
+**BCS matchups (optional):** If you want to set the NY6 bowl matchups (the 6 games that aren't your championship), use **Apply BCS/NY6 Games Only** in Bowl Week 2 for the first four, then again in Bowl Week 3 for the remaining two. The championship itself is set and run separately in Bowl Week 4.
+
+### 4-team
+
+One visit — Bowl Week 3. Pick your 4 teams as two semifinal matchups. The game advances the winners to the championship automatically.
+
+**BCS matchups (optional):** For the 4 NY6 games that aren't part of your bracket, use **Apply BCS/NY6 Games Only** in Bowl Week 2. Playoff games are set and run separately in Bowl Week 3.
+
+### 8-team
+
+One visit — Bowl Week 2. Pick your 8 teams. The game advances winners automatically through semis to the championship.
+
+### 12-team (two visits)
+
+**First visit — Bowl Week 1:**
+1. Set your 12 teams (4 byes + 8 first-round matchups) and apply.
+2. If your own team is in the bracket, do the retire/rehire process now (see below).
+3. Play Bowl Week 1 (the 4 Round 1 games).
+
+**Second visit — Bowl Week 2:**
+1. Load the save from after Round 1 is played.
+2. Pick your **Quarterfinal pairing style** first (CFP convention or true reseed), then click **Check Round 1 results**.
+3. Verify the winners, review the auto-generated QF matchups, override anything if needed.
+4. Click **Apply Round 2 & Save**.
+5. If your team survived, do the retire/rehire process again.
+
+**Quarterfinal pairing styles:**
+- **CFP convention:** 8/9 winner plays seed 1, 7/10 plays seed 2, 6/11 plays seed 3, 5/12 plays seed 4
+- **True reseed:** all 8 survivors sorted by seed, paired best vs worst working inward
+
+### 16-team (two visits)
+
+The game only has 4 native playoff slots for Round 1. The tool borrows 4 regular bowl games (Boca Raton, New Orleans, Cure, Gasparilla) as extra Round 1 slots.
+
+**First visit — Bowl Week 1:**
+1. Set your 16 teams and apply.
+2. When prompted, choose whether to apply CFP First Round presentation (see below).
+3. If your own team is in the bracket, do the retire/rehire process.
+4. Play all 8 Round 1 games.
+
+**Second visit — Bowl Week 2:**
+1. Load the save from after Round 1.
+2. Choose your **Quarterfinal pairing style** (reseed or bracket order), then click **Check Round 1 results**.
+3. Verify winners, review auto-generated QF matchups, override if needed.
+4. Click **Apply Round 2 & Save**.
+5. If your team survived, do the retire/rehire process again.
+
+**Quarterfinal pairing styles:**
+- **Reseed:** best surviving seed vs worst, working inward (1v8, 2v7, 3v6, 4v5 of survivors)
+- **Bracket order:** winners advance within their bracket half — QF1: 1v16 winner vs 8v9 winner; QF2: 4v13 winner vs 5v12 winner; QF3: 3v14 winner vs 6v11 winner; QF4: 2v15 winner vs 7v10 winner
+
+---
+
+## Championship location (optional)
+
+On the Format tab, you can pick a specific venue for the National Championship. Choose from 20 confirmed premier neutral sites: AT&T Stadium, Allegiant Stadium, Bank of America Stadium, Caesars Superdome, Camping World Stadium, Cotton Bowl, Everbank Stadium, Ford Field, Hard Rock Stadium, Lincoln Financial Field, Lucas Oil Stadium, M&T Bank Stadium, Mercedes-Benz Stadium, MetLife Stadium, Nissan Stadium, NRG Stadium, Raymond James Stadium, Rose Bowl, SoFi Stadium, State Farm Stadium. Leave on Auto to let the game decide.
+
+---
+
+## CFP First Round presentation (16-team only)
+
+When you apply a 16-team bracket, you'll be asked whether to make the 4 borrowed regular bowl games look and play like real CFP First Round games. Saying yes gives them:
+
+- The hosting team's real home stadium instead of the bowl's neutral site
+- CFP logo, jersey patch, field markings, and playoff commentary
+
+Saying no leaves them branded as their original bowls. Either way, they function correctly as part of your bracket.
+
+If you later build a different bracket size and this conversion is still applied, the tool asks if you want to revert those 4 bowls back to normal first.
+
+**Known limitation:** if the hosting team shares its stadium with an NFL team (Pittsburgh/Acrisure Stadium is the confirmed case), the field markings won't show correctly there — everything else still works. This appears to be a limitation in how that stadium's art assets are built, not something fixable through the save file.
+
+---
+
+## Retiring and rehiring your coach
+
+**Only relevant if YOUR team is in the bracket you just built.** Skip this if your team isn't involved.
+
+After Applying, your own team's "Play Game" button can show the wrong opponent, or your team can appear missing from the Members tab. This is not caused by this tool — it's a known game behavior when saves are edited outside the game. Nothing is actually broken; it's just stale display information. There's no save-file fix, but the retire/rehire workaround clears it.
+
+**Full step-by-step guide with pictures:** see **"User Created Coach Retirement Guide"** posted in the Discord.
+
+**Important:** 12-team and 16-team brackets require this done **twice** — once after the first Apply (Round 1), and again after the second Apply (Round 2), if your team survived that far. Every other bracket size only needs it once.
+
+The coach protection flag (preventing your created coach from being deleted on retirement) is handled automatically by this tool when you first load your save — you'll see a popup if it applies to you. Just click the button in the popup; no extra steps needed.
+
+---
+
+## Protecting your created coach
+
+After you load a save, a popup may appear if your coach is at risk of being permanently deleted on retirement — a known game bug. If it shows up:
+
+- Click the button in the popup. It flips one setting on your coach to prevent this.
+- It saves a new protected copy; your original file is never touched.
+- This can appear again later if you create a new coach — that's normal behavior, not a repeat bug.
+
+If you don't see a popup, your coach is already safe.
+
+---
+
+## Fingerprint check
+
+Every time you load a save, the tool quietly checks that the game's internal data format still matches what this tool was built for. If College Football 27 has been updated in a way that could cause silent errors, you'll see a red warning box. If that happens:
+
+- Don't trust the tool's results until it's sorted out.
+- Check the Discord for awareness of the update and whether a newer version is available.
+
+No warning means everything's fine — this check is silent when it passes.
+
+---
+
+## BCS Rankings
+
+The tool builds its own ranking from scratch using real game results — not the game's own unreliable rank field. The ranking engine uses RPI, Colley, Massey, Elo, SOS, and WAA computer systems plus a poll simulation, with tunable weights.
+
+On the BCS Rankings page:
+- **Left panel:** live Top 25, updates every time you hit Run. Movement arrows (▲▼ with numbers) show what changed vs the previous run.
+- **Right panel:** all settings — weights, poll simulation, Elo, RPI/SOS blends.
+- Rankings don't write to your save until you explicitly click **Write rankings to save**. Click **Don't update** to skip writing and move on without marking that step done.
+
+---
+
+## Bracket View
+
+The Bracket View tab draws your bracket as a visual tree — seeds, team colors, all rounds — filling in as you apply each round. TBD for rounds not yet played.
+
+- Read-only, never changes your save.
+- Zoom slider available for screenshots or zoomed-in review.
+- Load a different save to view a specific output file without disturbing what the rest of the tool is pointed at.
+- The bracket size shown always matches your Format tab selection — switch formats if you loaded a save built for a different size.
+- Once a champion is decided, a **Save Bracket** button appears.
+
+---
+
+## Bracket History
+
+After a season ends and a champion is decided, click **Save Bracket** on the Bracket View tab to file it away by year. The History tab keeps a record of every saved season — pick a year from the dropdown to see the full bracket again.
+
+This is stored in `bracketHistory.json` next to the .exe, separate from your save files. Saving the same year again replaces that year's entry.
+
+The **All-Time Stats** tab (inside History) shows most championships, most playoff appearances, most playoff wins, and most championships as a coach — computed from everything you've saved to history.
+
+---
+
+## Changelog
+
+### V3.0.0 (Current)
+
+**New sidebar navigation** — replaced the two-layer app switcher + tab system with a persistent sidebar that shows all steps in order (Conferences → BCS Rankings → Bracket sub-steps → Tools). Active step highlighted in gold, completed steps show a checkmark.
+
+**Dynamic progress guide** — the Conferences page now shows a live step-by-step guide that advances as you complete each step, replacing the old static "New here?" overview.
+
+**Playoff folder backup** — Apply & Save and Write Rankings now overwrite your input save directly instead of prompting for an output location. A copy of the original is automatically saved to a `Playoff/` subfolder in your saves directory before anything is written.
+
+**BCS Rankings redesign** — two-column layout with live Top 25 on the left (updates every Run) and all settings on the right. Movement indicators (▲▼ with numbers) show exactly how much each team moved vs the previous run. Rankings are not committed until you explicitly click Write or Don't Update.
+
+**Championship venue picker** — pick from 20 confirmed premier neutral sites for the National Championship game. All venues confirmed against real save data.
+
+**NY6/BCS matchup support for 2 and 4-team brackets** — dedicated "Apply BCS/NY6 Games Only" button lets you set the non-playoff NY6 game matchups in the correct bowl weeks, fully separate from the playoff bracket apply.
+
+**Reseeding options** — for 16-team Round 2, choose between Reseed (best vs worst) or Bracket Order (1v16 winner vs 8v9 winner, 4v13 winner vs 5v12 winner, etc.). For 12-team Round 2, choose between CFP Convention or True Reseed. Setting appears before the file loader so you choose your style before checking results.
+
+**Quarterfinal matchup preview** — both 12-team and 16-team Round 2 panels now show the QF matchup rows (with overridable dropdowns) between the winner confirmations and the Apply button.
+
+**Performance improvements** — async file I/O throughout (eliminates "not responding" during Apply), conference detection and rankings compute in parallel on file load, debug logging removed.
+
+**Bracket History All-Time Stats** — coach tracking now works correctly across saves.
+
+**Team dropdowns sorted by rank** — all team pickers show ranked teams first with seed/record/conference labels.
+
+**BCS/NY6 hint text reworded** — clearer instructions on when to run BCS matchups vs playoff games for each bracket size.
+
+---
+
+
+
+Post in the Discord with screenshots — especially the tool's own Log panel output alongside what actually happened in-game.

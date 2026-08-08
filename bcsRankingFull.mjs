@@ -3,32 +3,65 @@ import { rowToName } from './teamLookup.mjs';
 
 /**
  * Scan the SeasonGame table once and build a detailed per-team game log:
- * every completed game (week 0-15, using the validated winner-bit), who it
- * was against, what week, home or away, and win or loss. This is the single
- * source of truth every ranking system below is built from - fully
- * independent of any in-game "rank" field.
+ * every completed regular-season game (using the validated winner-bit),
+ * who it was against, what week, home or away, and win or loss. This is
+ * the single source of truth every ranking system below is built from -
+ * fully independent of any in-game "rank" field.
+ *
+ * Filters by SeasonWeekType === 'RegularSeason' (schema-safe, confirmed
+ * reliable) instead of a numeric week cutoff. CONFIRMED via real save
+ * testing: the raw-buffer week reading (SEASON_WEEK_BIT + mod-17
+ * unwrap) disagreed with the schema-safe SeasonWeek field on 100% of
+ * games in one real save - the raw bit math is not trustworthy for
+ * week numbers, even though it's still fine for WINNER_BIT (separately
+ * confirmed correct against 10 real in-game results). Filtering by
+ * SeasonWeekType sidesteps the bad numeric reading entirely -
+ * RegularSeason correctly includes the Conference Championship game
+ * too, which should count toward a team's record.
+ *
+ * seasonGameTable must already have had .readRecords() called on it by
+ * the caller (schema-aware Franchise table, same recordCount as buf).
  */
-function computeGameLogs(buf, recordsStart, recordSize, recordCount) {
+function computeGameLogs(buf, recordsStart, recordSize, recordCount, seasonGameTable) {
   const logs = {}; // row -> [{ opponent, week, isHome, won }]
   const ensure = (row) => (logs[row] = logs[row] || []);
 
   const games = [];
   for (let i = 0; i < recordCount; i++) {
     const m = readMatchup(buf, recordsStart, recordSize, i);
-    if (m.home.tableId !== TEAM_TABLE_ID || m.away.tableId !== TEAM_TABLE_ID) continue;
+    const homeIsFbs = m.home.tableId === TEAM_TABLE_ID;
+    const awayIsFbs = m.away.tableId === TEAM_TABLE_ID;
+    // Previously required BOTH sides to be FBS (in the Team table),
+    // which silently dropped the WHOLE game - including the FBS side's
+    // own win/loss - whenever the opponent was a non-FBS/FCS "buy game"
+    // opponent represented through a different table. An FBS team's
+    // result against a non-FBS opponent still counts toward that team's
+    // own record; we just never track/rank the non-FBS side itself.
+    if (!homeIsFbs && !awayIsFbs) continue;
+
+    let weekType;
+    try { weekType = seasonGameTable.records[i]?.['SeasonWeekType']; } catch { continue; }
+    if (weekType !== 'RegularSeason') continue;
+
     const recStart = recordsStart + i * recordSize;
     const recordBuf = buf.subarray(recStart, recStart + recordSize);
+    // Week number itself is only used for sort order below, not for
+    // in/out filtering - still reading it via the same raw bits since
+    // relative chronological order isn't affected by the offset issue,
+    // only the absolute mapping to a specific week number is.
     const rawWeek = readRecordBits(recordBuf, SEASON_WEEK_BIT, 5);
     const week = normalizeSeasonWeek(rawWeek);
-    if (week === null || week > 15) continue;
     const winnerBit = readRecordBits(recordBuf, WINNER_BIT, 1);
-    games.push({ week, home: m.home.row, away: m.away.row, homeWon: winnerBit === 0 });
+    games.push({ week, home: m.home.row, away: m.away.row, homeWon: winnerBit === 0, homeIsFbs, awayIsFbs });
   }
   games.sort((a, b) => a.week - b.week); // chronological order, needed for Elo
 
   for (const g of games) {
-    ensure(g.home).push({ opponent: g.away, week: g.week, isHome: true, won: g.homeWon });
-    ensure(g.away).push({ opponent: g.home, week: g.week, isHome: false, won: !g.homeWon });
+    // Only log a result for whichever side is an actual FBS team - a
+    // non-FBS opponent never gets its own log entry (it isn't ranked
+    // or tracked), but that doesn't cost the FBS side its result.
+    if (g.homeIsFbs) ensure(g.home).push({ opponent: g.away, week: g.week, isHome: true, won: g.homeWon, vsNonFbs: !g.awayIsFbs });
+    if (g.awayIsFbs) ensure(g.away).push({ opponent: g.home, week: g.week, isHome: false, won: !g.homeWon, vsNonFbs: !g.homeIsFbs });
   }
   return { logs, games };
 }
@@ -49,13 +82,17 @@ function computeRPI(logs, params = { wp: 0.25, owp: 0.50, oowp: 0.25 }) {
 
   const owp = {};
   rows.forEach(r => {
-    const opponents = logs[r].map(g => g.opponent);
+    // Non-FBS opponents (e.g. FCS buy games) have no wp entry of their
+    // own - they're not tracked/ranked. Skip them here rather than
+    // averaging in `undefined` (NaN), which would otherwise poison
+    // every team that played one.
+    const opponents = logs[r].map(g => g.opponent).filter(o => wp[o] !== undefined);
     owp[r] = opponents.length ? opponents.reduce((s, o) => s + wp[o], 0) / opponents.length : 0;
   });
 
   const oowp = {};
   rows.forEach(r => {
-    const opponents = logs[r].map(g => g.opponent);
+    const opponents = logs[r].map(g => g.opponent).filter(o => wp[o] !== undefined);
     oowp[r] = opponents.length ? opponents.reduce((s, o) => s + (owp[o] ?? wp[o]), 0) / opponents.length : 0;
   });
 
@@ -73,13 +110,15 @@ function computeSOS(logs, params = { owp: 2, oowp: 1 }) {
 
   const owp = {};
   rows.forEach(r => {
-    const opponents = logs[r].map(g => g.opponent);
+    // Same non-FBS-opponent guard as computeRPI - skip untracked
+    // opponents rather than averaging in undefined/NaN.
+    const opponents = logs[r].map(g => g.opponent).filter(o => wp[o] !== undefined);
     owp[r] = opponents.length ? opponents.reduce((s, o) => s + wp[o], 0) / opponents.length : 0;
   });
 
   const oowp = {};
   rows.forEach(r => {
-    const opponents = logs[r].map(g => g.opponent);
+    const opponents = logs[r].map(g => g.opponent).filter(o => wp[o] !== undefined);
     oowp[r] = opponents.length ? opponents.reduce((s, o) => s + (owp[o] ?? wp[o]), 0) / opponents.length : 0;
   });
 
@@ -212,7 +251,13 @@ function computeWinsAboveAverage(logs) {
   const waa = {};
   rows.forEach(r => {
     const actualWins = logs[r].filter(g => g.won).length;
-    const expectedWinsForAverageTeam = logs[r].reduce((s, g) => s + (1 - wp[g.opponent]), 0);
+    // A non-FBS opponent (e.g. an FCS buy game) has no wp entry - the
+    // win itself still counts toward actualWins above, it's just left
+    // out of the "expected wins against this schedule" calc, since we
+    // have no legitimate opponent quality to compare against.
+    const expectedWinsForAverageTeam = logs[r]
+      .filter(g => wp[g.opponent] !== undefined)
+      .reduce((s, g) => s + (1 - wp[g.opponent]), 0);
     waa[r] = actualWins - expectedWinsForAverageTeam;
   });
   return waa;
@@ -285,7 +330,10 @@ function computePollAverage(logs, sos, confChampions, weights = {}, computerRank
   const qualityWinsRaw = {};
   rows.forEach(r => {
     const games = logs[r];
-    qualityWinsRaw[r] = games.filter(g => g.won).reduce((s, g) => s + wp[g.opponent], 0);
+    // Same non-FBS guard as elsewhere - a win over an untracked
+    // opponent doesn't get a "quality win" contribution either way,
+    // since there's no legitimate wp[] value to credit it with.
+    qualityWinsRaw[r] = games.filter(g => g.won && wp[g.opponent] !== undefined).reduce((s, g) => s + wp[g.opponent], 0);
   });
   const normQuality = normalize(qualityWinsRaw);
 
@@ -326,7 +374,7 @@ function computePollAverage(logs, sos, confChampions, weights = {}, computerRank
  * is based on). Includes a dynamic conference-SOS adjustment and a
  * head-to-head tiebreaker for very close scores.
  */
-function computeFullBCSRankings(buf, recordsStart, recordSize, recordCount, confChampions, options = {}) {
+function computeFullBCSRankings(buf, recordsStart, recordSize, recordCount, confChampions, seasonGameTable, options = {}) {
   const {
     pollWeight = 0.5,
     computerWeight = 0.5,
@@ -342,7 +390,7 @@ function computeFullBCSRankings(buf, recordsStart, recordSize, recordCount, conf
     teamConference = {},
   } = options;
 
-  const { logs, games } = computeGameLogs(buf, recordsStart, recordSize, recordCount);
+  const { logs, games } = computeGameLogs(buf, recordsStart, recordSize, recordCount, seasonGameTable);
   const rows = Object.keys(logs).map(Number);
 
   const rpi = computeRPI(logs, rpiParams);

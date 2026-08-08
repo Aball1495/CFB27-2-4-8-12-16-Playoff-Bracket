@@ -213,8 +213,91 @@
   }
   .appSwitchBtn:hover{ border-color:var(--gold-dim); }
   .appSwitchBtn.active{ border-color:var(--gold); color:var(--gold); background:var(--panel2); }
-  .appPanel{ display:none; }
-  .appPanel.active{ display:block; }
+  .appPanel{ display:none; width:100%; }
+  .appPanel.active{ display:block; width:100%; }
+  /* details elements need explicit width or they collapse to fit-content */
+  .main-content details{ width:100%; }
+
+  /* ─── New sidebar shell ─────────────────────────────────────── */
+  .shell{
+    display:grid; grid-template-columns:200px 1fr;
+    min-height:100vh; position:relative;
+  }
+  .sidebar{
+    background:#0f1214; border-right:1px solid var(--border);
+    display:flex; flex-direction:column; position:fixed;
+    top:0; left:0; bottom:0; width:200px; overflow-y:auto; z-index:10;
+  }
+  .sidebar-logo{
+    padding:14px 16px 12px; border-bottom:1px solid var(--border);
+    flex-shrink:0;
+  }
+  .sidebar-logo .app-name{ font-size:12px; font-weight:800; color:var(--gold); letter-spacing:0.8px; text-transform:uppercase; }
+  .sidebar-logo .app-sub{ font-size:10px; color:var(--text-dim); margin-top:2px; }
+  .sidebar-file{
+    padding:10px 12px; border-bottom:1px solid var(--border);
+    flex-shrink:0;
+  }
+  .sidebar-file .sf-label{ font-size:10px; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px; }
+  .sidebar-file .sf-name{ font-size:12px; color:var(--text); font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .sidebar-file .sf-none{ font-size:12px; color:var(--text-dim); font-style:italic; }
+  .sidebar-file .sf-btn{
+    margin-top:6px; width:100%; font-size:11px; padding:5px 8px;
+    background:var(--panel2); color:var(--text); border:1px solid var(--border);
+    border-radius:4px; cursor:pointer; text-align:center;
+  }
+  .sidebar-file .sf-btn:hover{ border-color:var(--gold-dim); }
+  .sidebar-nav{ flex:1; padding:8px 0; }
+  .nav-section-label{
+    font-size:10px; color:var(--text-dim); text-transform:uppercase;
+    letter-spacing:0.8px; padding:8px 14px 4px; margin-top:4px;
+  }
+  .nav-item{
+    display:flex; align-items:center; gap:9px;
+    padding:7px 14px; font-size:12px; color:var(--text-dim);
+    cursor:pointer; border-left:2px solid transparent;
+    transition:background 0.1s, color 0.1s, border-color 0.1s;
+    user-select:none;
+  }
+  .nav-item:hover{ color:var(--text); background:rgba(255,255,255,0.025); }
+  .nav-item.active{ color:var(--gold); border-left-color:var(--gold); background:rgba(212,175,55,0.06); }
+  .nav-item.done{ color:var(--text-dim); }
+  .nav-step{
+    width:17px; height:17px; border-radius:50%;
+    background:var(--panel2); border:1px solid var(--border);
+    display:flex; align-items:center; justify-content:center;
+    font-size:9px; flex-shrink:0; font-weight:700;
+  }
+  .nav-item.active .nav-step{ background:var(--gold); color:#0b0d0e; border-color:var(--gold); }
+  .nav-item.done .nav-step{ background:var(--green); color:#fff; border-color:var(--green); font-size:10px; }
+  .nav-divider{ height:1px; background:var(--border); margin:6px 14px; }
+  /* Bracket sub-steps get a subtle indent */
+  #navFormat,#navAutobids,#navBuild,#navView,#navHistory{ padding-left:22px; }
+  .shell-main{
+    margin-left:200px; display:flex; flex-direction:column; min-height:100vh;
+    width:calc(100vw - 200px); min-width:0; overflow-x:hidden;
+  }
+  .topbar{
+    position:sticky; top:0; z-index:9;
+    background:var(--panel); border-bottom:1px solid var(--border);
+    padding:10px 20px; display:flex; align-items:center; justify-content:space-between;
+    min-height:46px;
+  }
+  .topbar-title{ font-size:14px; font-weight:700; color:var(--text); }
+  .topbar-meta{ font-size:11px; color:var(--text-dim); margin-top:1px; }
+  .topbar-actions{ display:flex; gap:8px; align-items:center; }
+  .main-content{ flex:1; padding:20px 24px 60px; width:100%; box-sizing:border-box; }
+  /* Hide old wrap-level header and switcher */
+  .legacy-header{ display:none; }
+  .appSwitcher{ display:none; }
+  /* Status chips in topbar */
+  .status-chip{
+    font-size:10px; padding:3px 8px; border-radius:10px;
+    background:var(--panel2); color:var(--text-dim); border:1px solid var(--border);
+  }
+  .status-chip.ok{ color:var(--green); border-color:rgba(76,175,125,0.3); background:rgba(76,175,125,0.08); }
+  .status-chip.warn{ color:var(--gold); border-color:rgba(212,175,55,0.3); background:rgba(212,175,55,0.06); }
+
 
   /* Conference standings */
   .standingsGrid{ display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:14px; }
@@ -525,35 +608,86 @@
 </script>
 
 
-<div class="wrap">
+<div class="shell">
 
+<!-- ─── Sidebar ─────────────────────────────────────────────────── -->
+<div class="sidebar" id="appSidebar">
+  <div class="sidebar-logo">
+    <div class="app-name">CFB27 Bracket</div>
+    <div class="app-sub">Dynasty Playoff Editor</div>
+  </div>
+  <div class="sidebar-file">
+    <div class="sf-label">Active save</div>
+    <div class="sf-name" id="sidebarFileName" style="display:none;"></div>
+    <div class="sf-none" id="sidebarFileNone">No file loaded</div>
+    <button class="sf-btn" id="btnPickInputSidebar">Choose save file…</button>
+  </div>
+  <div class="sidebar-nav">
+    <div class="nav-section-label">Setup</div>
+    <div class="nav-item" id="navConferences" data-app="conferences">
+      <div class="nav-step" id="navStepConf">1</div>
+      Conferences
+    </div>
+    <div class="nav-item" id="navRankings" data-app="rankings">
+      <div class="nav-step" id="navStepRank">2</div>
+      BCS Rankings
+    </div>
+    <div class="nav-divider"></div>
+    <div class="nav-section-label">Bracket</div>
+    <div class="nav-item" id="navFormat" data-tab="2">
+      <div class="nav-step">3</div>
+      Format
+    </div>
+    <div class="nav-item" id="navAutobids" data-tab="3" style="pointer-events:none;opacity:0.4;">
+      <div class="nav-step">4</div>
+      Autobids
+    </div>
+    <div class="nav-item" id="navBuild" data-tab="4" style="pointer-events:none;opacity:0.4;">
+      <div class="nav-step">5</div>
+      Build bracket
+    </div>
+    <div class="nav-item" id="navView" data-tab="5" style="pointer-events:none;opacity:0.4;">
+      <div class="nav-step" style="opacity:0;"></div>
+      Bracket view
+    </div>
+    <div class="nav-item" id="navHistory" data-tab="6">
+      <div class="nav-step" style="opacity:0;"></div>
+      History
+    </div>
+    <div class="nav-divider"></div>
+    <div class="nav-section-label">Tools</div>
+    <div class="nav-item" id="navSeasonStat" data-app="season-stat-fix">
+      <div class="nav-step" style="opacity:0;"></div>
+      Fix season stats
+    </div>
+  </div>
+</div>
+
+<!-- ─── Main area ─────────────────────────────────────────────────── -->
+<div class="shell-main">
+<div class="topbar" id="appTopbar">
+  <div>
+    <div class="topbar-title" id="topbarTitle">Conferences</div>
+    <div class="topbar-meta" id="topbarMeta"></div>
+  </div>
+  <div class="topbar-actions" id="topbarStatus"></div>
+</div>
+
+<div class="main-content">
+
+<!-- legacy header hidden -->
+<div class="legacy-header">
 <h1>CFB27 Playoff Bracket Editor</h1>
 <div class="subtitle">Build a custom playoff bracket of any supported size, then write it directly into your save.</div>
+</div>
 
-<details class="panel" style="margin-bottom:18px;">
-  <summary style="margin:0;">New here? Quick overview of how this works</summary>
-  <div style="margin-top:12px; display:flex; flex-direction:column; gap:8px;">
-    <p class="hint" style="margin:0;"><b style="color:var(--text);">1.</b> Choose your save file below - this lets both tools read your teams' real records and compute their own ranking, independent of the game's own unreliable rank field.</p>
-    <p class="hint" style="margin:0;"><b style="color:var(--text);">2.</b> If your own coach is at risk under how the game handles retirement, a popup will show up automatically right after loading - just click the button in it, no extra steps needed. If it doesn't show up, your coach is already safe.</p>
-    <p class="hint" style="margin:0;"><b style="color:var(--text);">3.</b> Check the <b style="color:var(--text);">Conferences</b> tool above if your dynasty uses a different realignment than this tool's defaults - it can detect your real conference groupings automatically. Best done in Week 1 of Bowl Season, right after Conference Championships are actually played - too early and it can't crown champions yet. A red banner will also warn you here any time what's saved doesn't match what's actually in a save you load.</p>
-    <p class="hint" style="margin:0;"><b style="color:var(--text);">4.</b> Switch to the <b style="color:var(--text);">Bracket Tool</b> and pick your format (2, 4, 8, 12, or 16 teams).</p>
-    <p class="hint" style="margin:0;"><b style="color:var(--text);">5.</b> Decide which conferences get automatic bids on the Autobids tab - the ranking engine and its tuning sliders live here too, if you want to adjust the methodology.</p>
-    <p class="hint" style="margin:0;"><b style="color:var(--text);">6.</b> Fill in your bracket (At-Large seeds auto-fill by our ranking - override anything you want) and hit Apply. This writes a new save file - it never touches your original.</p>
-    <p class="hint" style="margin:0; color:#ddb87a;"><b style="color:var(--text);">7.</b> <b>If your own team is in the bracket you just built</b>: first switch control to a different team and make THEM Dynasty Owner, THEN retire your own coach, then bring your coach back. Doing it in this order matters - retiring while you're still Dynasty Owner yourself causes a separate problem. Do this after every single Apply, including both passes of a 16-team bracket.</p>
-    <p class="hint" style="margin:0;"><b style="color:var(--text);">8.</b> Load that save in-game and continue - for 2-team, 4-team, and 8-team brackets, everything advances automatically from there, no need to come back to the tool. 16-team is the one exception: come back once Round 1 is actually played to reseed Round 2 (repeat step 7 after that Apply too).</p>
-  </div>
-</details>
 
-<div class="panel">
-  <h2>Save File</h2>
-  <div style="display:flex; gap:12px; align-items:center; justify-content:space-between;">
-    <div style="display:flex; gap:12px; align-items:center;">
-      <button class="secondary" id="btnPickInput">Choose save file</button>
-      <span id="filePathDisplay">No file selected.</span>
-      <span id="rankingLoadStatus" class="hint"></span>
-    </div>
-    <button class="secondary" id="btnStartOver">Start over</button>
-  </div>
+<!-- Hidden legacy file picker panel - picker is now in the sidebar -->
+<div style="display:none;">
+  <button id="btnPickInput">Choose save file</button>
+  <span id="filePathDisplay">No file selected.</span>
+  <span id="rankingLoadStatus" class="hint"></span>
+  <button id="btnStartOver">Start over</button>
 </div>
 
 <div class="panel" id="conferenceMismatchBanner" style="display:none; border-color:var(--red);">
@@ -579,7 +713,9 @@
 
 <div class="appSwitcher">
   <button class="appSwitchBtn active" data-app="conferences">Conferences</button>
+  <button class="appSwitchBtn" data-app="rankings">BCS Rankings</button>
   <button class="appSwitchBtn" data-app="bracket">Bracket Tool</button>
+  <button class="appSwitchBtn" data-app="season-stat-fix">Fix Season Stats</button>
 </div>
 
 <!-- APP: CONFERENCES -->
@@ -652,12 +788,28 @@
       </div>
     </div>
     <p class="hint" id="formatHint"></p>
+
+    <div style="margin-top:20px; padding-top:16px; border-top:1px solid var(--border);">
+      <label for="championshipStadiumSelect" style="display:block; margin-bottom:6px; font-weight:600;">Championship location (optional)</label>
+      <p class="hint" style="margin:0 0 8px;">Leave on Auto for whatever the game would normally do. Pick a premier neutral site to have the National Championship played there instead.</p>
+      <select id="championshipStadiumSelect" style="width:100%; max-width:320px;">
+        <option value="">Auto (default)</option>
+        <optgroup label="Premier Neutral Sites" id="premierStadiumGroup"></optgroup>
+      </select>
+    </div>
   </div>
   <div class="navBar">
     <span></span>
     <button class="primary" id="btnToTab3" disabled>Next: Autobids</button>
   </div>
 </div>
+
+<script>
+window.getChampionshipStadiumTeam = function () {
+  const select = document.getElementById('championshipStadiumSelect');
+  return select && select.value ? select.value : null;
+};
+</script>
 
 <!-- TAB: AUTOBIDS -->
 <div class="tabpanel" id="tab3">
@@ -700,58 +852,7 @@
       <details style="margin-top:16px;" id="fineTuneDetails">
         <summary>Want to fine-tune it yourself?</summary>
         <div style="margin-top:14px;">
-          <div class="settingsGrid">
-            <div class="settingsCol">
-              <div class="settingsBox">
-                <h3>Conference Strength</h3>
-                <div id="sliders-conf"></div>
-              </div>
-              <div class="settingsBox">
-                <h3>Poll Simulation Weights</h3>
-                <div id="sliders-poll"></div>
-              </div>
-            </div>
-            <div class="settingsCol">
-              <div class="settingsBox">
-                <h3>Elo Computer Settings</h3>
-                <div id="sliders-elo"></div>
-              </div>
-              <div class="settingsBox">
-                <h3>Computer Systems</h3>
-                <div class="computerSysList">
-                  <div><b>RPI</b> &mdash; Win% + Opp Win% + Opp-Opp Win%</div>
-                  <div><b>Colley</b> &mdash; Published matrix method (bias-free W/L)</div>
-                  <div><b>Massey</b> &mdash; Least-squares SOS solver</div>
-                  <div><b>Elo</b> &mdash; Sagarin-style chess rating</div>
-                  <div><b>SOS</b> &mdash; Iterative schedule strength</div>
-                  <div><b>WAA</b> &mdash; Wins above expected</div>
-                </div>
-                <label style="display:flex; align-items:center; gap:8px; font-size:12px; margin-bottom:12px;">
-                  <input type="checkbox" id="dropHighLowToggle" checked> Drop each team's best &amp; worst computer score (real BCS methodology)
-                </label>
-                <p class="hint" style="margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px; font-size:11px;">System weight (how strong each system counts)</p>
-                <div id="weightRows" style="display:flex; flex-wrap:wrap; gap:14px; margin-bottom:14px;"></div>
-                <p class="hint" style="margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px; font-size:11px;">RPI blend (your record / opponents' / opponents-of-opponents')</p>
-                <div style="display:flex; gap:10px; margin-bottom:12px;">
-                  <label style="font-size:11px; color:var(--text-dim);">Your record<br><input type="number" id="rpiWp" value="0.25" step="0.05" min="0" style="width:70px;"></label>
-                  <label style="font-size:11px; color:var(--text-dim);">Opponents'<br><input type="number" id="rpiOwp" value="0.50" step="0.05" min="0" style="width:70px;"></label>
-                  <label style="font-size:11px; color:var(--text-dim);">Opp-of-opp<br><input type="number" id="rpiOowp" value="0.25" step="0.05" min="0" style="width:70px;"></label>
-                </div>
-                <p class="hint" style="margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px; font-size:11px;">SOS blend (opponents' record vs. opponents' opponents' record)</p>
-                <div style="display:flex; gap:10px;">
-                  <label style="font-size:11px; color:var(--text-dim);">Opponents'<br><input type="number" id="sosOwp" value="2" step="0.5" min="0" style="width:70px;"></label>
-                  <label style="font-size:11px; color:var(--text-dim);">Opp-of-opp<br><input type="number" id="sosOowp" value="1" step="0.5" min="0" style="width:70px;"></label>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div class="settingsRunBar">
-            <button class="primary" id="btnRecomputeRankings">Run BCS Rankings</button>
-            <button class="secondary" id="btnResetDefaults">Reset to Defaults</button>
-            <span class="hint" id="recomputeStatus" style="margin:0;"></span>
-          </div>
-          <p class="hint" style="margin-top:10px;">Changes to settings take effect on next run.</p>
+          <p class="hint">Ranking settings (computer weights, poll simulation, Elo settings) have moved to the <b>BCS Rankings</b> tab in the top navigation — that's where the ranking engine lives now, so it makes more sense to configure it there.</p>
         </div>
       </details>
 
@@ -822,7 +923,34 @@
     <div class="matchupPreview" id="matchupPreview"></div>
   </div>
 
+  <div class="panel" id="customBowlsPanel" style="display:none;">
+    <h2>Other bowl games (optional)</h2>
+    <p class="hint">These games aren't part of your bracket - the tool leaves them exactly as the game generated them by default. Pick teams here if you want to set any of them yourself. Leave any one on Auto to leave it untouched. Running this more than once for the same size is completely fine; each Apply just overwrites whichever ones you've set.</p>
+    <div style="display:flex; align-items:center; gap:12px; margin-bottom:10px;">
+      <button class="secondary" id="btnToggleCustomBowls" type="button">Show bowls (<span id="customBowlsCount">0</span>)</button>
+      <span class="hint" id="customBowlsCustomizedHint" style="display:none;"></span>
+    </div>
+    <div id="customBowlsExpanded" style="display:none;">
+      <input type="text" id="customBowlSearch" placeholder="Search bowl name..." style="width:100%; margin-bottom:10px; padding:8px; box-sizing:border-box;">
+      <div id="customBowlRows"></div>
+      <p class="hint" id="customBowlNoResults" style="display:none;">No bowls match that search.</p>
+    </div>
+  </div>
 
+  <div class="panel" id="ny6LeftoverPanel" style="display:none;">
+    <h2>NY6 bowl games not used by your bracket (optional)</h2>
+    <p class="hint" id="ny6LeftoverHint">For 2-team and 4-team brackets, these games aren't part of your actual playoff but the game still plays them. Set the teams here to control who plays in each game. The games will still have CFP quarterfinal presentation (field markings, broadcast overlay, uniform patch) - this is a known engine limitation with no clean workaround. Safe to re-run at each bowl week.</p>
+    <button class="secondary" id="btnAutoFillNy6" type="button" style="margin-bottom:12px;">Auto-fill teams from rankings</button>
+    <button class="secondary" id="btnToggleTop25" type="button" style="margin-bottom:12px; margin-left:8px;">Show Top 25</button>
+    <div id="top25Snapshot" style="display:none; margin-bottom:12px; font-size:0.9em; columns:2; column-gap:24px;"></div>
+    <div id="ny6LeftoverRows"></div>
+    <div style="margin-top:16px; padding-top:16px; border-top:1px solid var(--border);">
+      <p class="hint" style="margin:0 0 8px;">BCS matchups are only available for 4-team and 2-team brackets. For a 4-team bracket, set and run BCS matchups in Bowl Week 2 only. For a 2-team bracket, set BCS matchups in Bowl Week 2 and run for the first four NY6 games, then return in Bowl Week 3 to set and run the remaining two NY6 games. Actual playoff games must still be set and run separately — Bowl Week 3 for a 4-team bracket, Bowl Week 4 for a 2-team bracket.</p>
+      <button class="primary" id="btnApplyNy6Only">Apply BCS/NY6 games only</button>
+      <span class="hint" id="ny6ApplyStatus" style="margin-left:10px;"></span>
+      <pre id="ny6ApplyLog" style="margin-top:14px; white-space:pre-wrap; font-size:0.85em; color:#ccc;"></pre>
+    </div>
+  </div>
 
   <div class="navBar">
     <button class="secondary" id="btnToTab3b">Back</button>
@@ -838,7 +966,18 @@
     <h2>Round 2: Set the Quarterfinals <span class="count">16-team only</span></h2>
     <p class="hint">The native First Round &rarr; Quarterfinal chain only auto-advances the 4 games in the true CFP bracket slots. The other 4 Round 1 games are repurposed regular bowls, so the game has no idea they're part of your bracket &mdash; you'll need to come back here once Round 1 is actually played and confirm the winners. The Quarterfinal pairing is then auto-reseeded (best surviving seed hosts the worst surviving seed, working inward), fully overridable.</p>
 
-    <div style="display:flex; align-items:center; gap:10px; margin:14px 0;">
+    <div style="margin:14px 0 16px;">
+      <label style="font-size:12px; font-weight:600; display:block; margin-bottom:8px;">Quarterfinal pairing style</label>
+      <label style="display:flex; align-items:center; gap:8px; font-size:12px; margin-bottom:6px; cursor:pointer;">
+        <input type="radio" name="reseedMode16" id="reseedMode16_reseed" value="reseed" checked> <b>Reseed</b> — best surviving seed vs worst, working inward (1v8, 2v7, 3v6, 4v5 of survivors)
+      </label>
+      <label style="display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer;">
+        <input type="radio" name="reseedMode16" id="reseedMode16_bracket" value="bracket"> <b>Bracket order</b> — winners advance in their bracket half (no reseeding, preserves original upper/lower half structure)
+      </label>
+      <p class="hint" style="margin-top:6px; font-style:italic;">You must re-check Round 1 results after changing this to see the updated pairings.</p>
+    </div>
+
+    <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
       <button class="secondary" id="btnPickRound2Input">Load save (after Round 1 is played)</button>
       <span id="round2FilePathDisplay" style="font-family:'SF Mono',Consolas,monospace; font-size:12px; color:var(--text-dim);"></span>
     </div>
@@ -863,7 +1002,18 @@
 
   <div class="panel" id="round2Panel12" style="display:none; margin-top:18px;">
     <h2>Round 2: Set the Quarterfinals <span class="count">12-team only</span></h2>
-    <p class="hint">Real gameplay (confirmed via actual Bowl Week 2 results) showed the game's native auto-advance does NOT match the real CFP convention - it currently pairs 5/12's winner with seed 1, when it should be 8/9's winner facing seed 1. Rather than fight that, this writes the correct pairing directly once Round 1 is actually played: 8/9's winner plays seed 1, 7/10's winner plays seed 2, 6/11's winner plays seed 3, 5/12's winner plays seed 4 - overriding whatever the game already auto-advanced. Bye seeds below are read directly from this save, not from whatever's still in the Autobids tab's seed dropdowns.</p>
+    <p class="hint">Real gameplay (confirmed via actual Bowl Week 2 results) showed the game's native auto-advance does NOT match the real CFP convention - it currently pairs 5/12's winner with seed 1, when it should be 8/9's winner facing seed 1. Rather than fight that, this writes the correct pairing directly once Round 1 is actually played.</p>
+
+    <div style="margin:14px 0 10px;">
+      <label style="font-size:12px; font-weight:600; display:block; margin-bottom:6px;">Quarterfinal pairing style</label>
+      <label style="display:flex; align-items:center; gap:8px; font-size:12px; margin-bottom:4px; cursor:pointer;">
+        <input type="radio" name="reseedMode12" id="reseedMode12_cfp" value="cfp" checked> <b>CFP convention</b> — 8/9 winner plays seed 1, 7/10 plays seed 2, 6/11 plays seed 3, 5/12 plays seed 4
+      </label>
+      <label style="display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer;">
+        <input type="radio" name="reseedMode12" id="reseedMode12_reseed" value="reseed"> <b>True reseed</b> — sort all 8 survivors by seed, pair best vs worst working inward (same as 16-team reseeding)
+      </label>
+      <p class="hint" style="margin-top:6px; font-style:italic;">You must re-check Round 1 results after changing this to see the updated pairings.</p>
+    </div>
 
     <div style="display:flex; align-items:center; gap:10px; margin:14px 0;">
       <button class="secondary" id="btnPickRound2Input12">Load save (after Round 1 is played)</button>
@@ -873,6 +1023,11 @@
     <p class="hint" id="round2Status12" style="margin-top:8px;"></p>
 
     <div id="round1ResultsRows12" style="margin-top:14px;"></div>
+
+    <div id="qfMatchupPreview12" style="display:none; margin-top:18px; padding-top:14px; border-top:1px solid var(--border);">
+      <p class="hint" style="margin-bottom:10px;">Quarterfinal matchups based on the confirmed winners above. Override anything if needed.</p>
+      <div id="qfMatchupRows12"></div>
+    </div>
 
     <div class="navBar">
       <button class="primary" id="btnApplyRound2_12" disabled>Apply Round 2 &amp; Save</button>
@@ -917,26 +1072,210 @@
 
 <!-- TAB: BRACKET HISTORY -->
 <div class="tabpanel" id="tab6">
-  <div class="panel">
-    <h2>Bracket History</h2>
-    <p class="hint">Every bracket you've saved with the "Save Bracket" button, one per season. Saving is manual and by year, so testing/re-running the tool never spams this list - saving the same year again just overwrites that year's entry.</p>
-    <div style="display:flex; align-items:center; gap:14px; margin-bottom:14px; flex-wrap:wrap;">
-      <button class="secondary" id="btnRefreshBracketHistory">Refresh</button>
-      <label class="hint" style="margin:0; display:flex; align-items:center; gap:6px;">
-        Zoom
-        <input type="range" id="bracketHistoryZoom" min="30" max="150" value="100" style="vertical-align:middle;">
-        <span id="bracketHistoryZoomLabel">100%</span>
-      </label>
+  <div class="panel" style="margin-bottom:0; padding-bottom:0;">
+    <div style="display:flex; gap:8px; border-bottom:1px solid var(--border); margin-bottom:16px;">
+      <button class="subtabbtn active" data-subtab="bracket" style="padding:10px 16px; background:none; border:none; border-bottom:2px solid var(--gold); color:var(--gold); cursor:pointer; font-weight:600;">Bracket</button>
+      <button class="subtabbtn" data-subtab="stats" style="padding:10px 16px; background:none; border:none; border-bottom:2px solid transparent; color:var(--text-dim); cursor:pointer; font-weight:600;">Stats</button>
     </div>
-    <select id="bracketHistoryList" style="margin-bottom:16px;"></select>
-    <div id="bracketHistoryContainer" style="overflow-x:auto;">
-      <p class="hint">No year selected yet.</p>
+  </div>
+
+  <div class="subtabpanel active" id="subtab-bracket">
+    <div class="panel">
+      <h2>Bracket History</h2>
+      <p class="hint">Every bracket you've saved with the "Save Bracket" button, one per season. Saving is manual and by year, so testing/re-running the tool never spams this list - saving the same year again just overwrites that year's entry.</p>
+      <div style="display:flex; align-items:center; gap:14px; margin-bottom:14px; flex-wrap:wrap;">
+        <button class="secondary" id="btnRefreshBracketHistory">Refresh</button>
+        <label class="hint" style="margin:0; display:flex; align-items:center; gap:6px;">
+          Zoom
+          <input type="range" id="bracketHistoryZoom" min="30" max="150" value="100" style="vertical-align:middle;">
+          <span id="bracketHistoryZoomLabel">100%</span>
+        </label>
+      </div>
+      <select id="bracketHistoryList" style="margin-bottom:16px;"></select>
+      <div id="bracketHistoryContainer" style="overflow-x:auto;">
+        <p class="hint">No year selected yet.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="subtabpanel" id="subtab-stats" style="display:none;">
+    <div class="panel">
+      <h2>All-Time Stats</h2>
+      <p class="hint">Computed from every season you've saved to Bracket History - nothing new to set up, this just adds up what's already there. Coach tracking only started with this feature, so "most championships as a coach" will only reflect seasons saved from now on, not anything saved before.</p>
+      <button class="secondary" id="btnRefreshStats">Refresh</button>
+      <div id="statsContainer" style="margin-top:16px;">
+        <p class="hint">No history saved yet.</p>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+
+<!-- APP: STANDALONE BCS RANKINGS -->
+<div class="appPanel" id="app-rankings">
+  <div style="display:grid; grid-template-columns:260px 1fr; gap:0; height:calc(100vh - 46px);">
+
+    <!-- Left: live Top 25 -->
+    <div style="border-right:1px solid var(--border); display:flex; flex-direction:column; overflow:hidden;">
+      <div style="padding:14px 16px 10px; border-bottom:1px solid var(--border); flex-shrink:0;">
+        <div style="font-size:11px; text-transform:uppercase; letter-spacing:0.8px; color:var(--text-dim); margin-bottom:4px;">Top 25</div>
+        <div style="font-size:10px; color:var(--text-dim);" id="rankingsLiveStatus">Load a save to compute</div>
+      </div>
+      <div style="flex:1; overflow-y:auto; padding:8px 0;" id="rankingsLiveList">
+        <div style="padding:12px 16px; font-size:12px; color:var(--text-dim); font-style:italic;">No rankings yet — load a save and hit Run.</div>
+      </div>
+      <div style="padding:12px 16px; border-top:1px solid var(--border); flex-shrink:0;">
+        <button class="primary" id="btnApplyStandaloneRankings" disabled style="width:100%; margin-bottom:6px;">Write to save</button>
+        <span class="hint" id="standaloneRankingsApplyStatus" style="display:block; text-align:center;"></span>
+      </div>
+    </div>
+
+    <!-- Right: settings -->
+    <div style="overflow-y:auto; padding:16px 20px;">
+      <p class="hint" style="margin-bottom:16px;">Adjust settings, hit Run to preview. Nothing writes to your save until you click "Write to save" on the left.</p>
+
+      <div class="settingsBox" style="margin-bottom:12px;">
+        <h3>Conference Strength</h3>
+        <div id="sliders-conf"></div>
+      </div>
+      <div class="settingsBox" style="margin-bottom:12px;">
+        <h3>Poll Simulation Weights</h3>
+        <div id="sliders-poll"></div>
+      </div>
+      <div class="settingsBox" style="margin-bottom:12px;">
+        <h3>Elo Computer Settings</h3>
+        <div id="sliders-elo"></div>
+      </div>
+      <div class="settingsBox" style="margin-bottom:12px;">
+        <h3>Computer Systems</h3>
+        <div class="computerSysList" style="margin-bottom:10px;">
+          <div><b>RPI</b> &mdash; Win% + Opp Win% + Opp-Opp Win%</div>
+          <div><b>Colley</b> &mdash; Published matrix method (bias-free W/L)</div>
+          <div><b>Massey</b> &mdash; Least-squares SOS solver</div>
+          <div><b>Elo</b> &mdash; Sagarin-style chess rating</div>
+          <div><b>SOS</b> &mdash; Iterative schedule strength</div>
+          <div><b>WAA</b> &mdash; Wins above expected</div>
+        </div>
+        <label style="display:flex; align-items:center; gap:8px; font-size:12px; margin-bottom:12px;">
+          <input type="checkbox" id="dropHighLowToggle" checked> Drop best &amp; worst computer score (real BCS methodology)
+        </label>
+        <p class="hint" style="margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px; font-size:11px;">System weights</p>
+        <div id="weightRows" style="display:flex; flex-wrap:wrap; gap:10px; margin-bottom:14px;"></div>
+        <p class="hint" style="margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px; font-size:11px;">RPI blend</p>
+        <div style="display:flex; gap:10px; margin-bottom:12px;">
+          <label style="font-size:11px; color:var(--text-dim);">Your record<br><input type="number" id="rpiWp" value="0.25" step="0.05" min="0" style="width:70px;"></label>
+          <label style="font-size:11px; color:var(--text-dim);">Opponents'<br><input type="number" id="rpiOwp" value="0.50" step="0.05" min="0" style="width:70px;"></label>
+          <label style="font-size:11px; color:var(--text-dim);">Opp-of-opp<br><input type="number" id="rpiOowp" value="0.25" step="0.05" min="0" style="width:70px;"></label>
+        </div>
+        <p class="hint" style="margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px; font-size:11px;">SOS blend</p>
+        <div style="display:flex; gap:10px;">
+          <label style="font-size:11px; color:var(--text-dim);">Opponents'<br><input type="number" id="sosOwp" value="2" step="0.5" min="0" style="width:70px;"></label>
+          <label style="font-size:11px; color:var(--text-dim);">Opp-of-opp<br><input type="number" id="sosOowp" value="1" step="0.5" min="0" style="width:70px;"></label>
+        </div>
+      </div>
+
+      <div style="display:flex; gap:10px; margin-top:4px;">
+        <button class="primary" id="btnRecomputeRankings">Run BCS Rankings</button>
+        <button class="secondary" id="btnResetDefaults">Reset to defaults</button>
+      </div>
+      <span class="hint" id="recomputeStatus" style="display:block; margin-top:8px;"></span>
+
+      <div style="margin-top:20px; padding-top:16px; border-top:1px solid var(--border); display:flex; gap:10px; align-items:center;">
+        <button class="primary" id="btnWriteRankingsFromPanel">Write rankings to save</button>
+        <button class="secondary" id="btnSkipRankings">Don't update</button>
+        <span class="hint" id="rankingsPanelWriteStatus" style="margin:0;"></span>
+      </div>
+
+      <!-- Hidden legacy elements kept for JS compatibility -->
+      <div style="display:none;">
+        <button id="btnPreviewStandaloneRankings"></button>
+        <span id="standaloneRankingsStatus"></span>
+        <div id="standaloneRankingsPreview"></div>
+      </div>
     </div>
   </div>
 </div>
 
+<!-- APP: STANDALONE SEASON-STAT FIX -->
+<div class="appPanel" id="app-season-stat-fix">
+  <div class="panel">
+    <h2>Fix season-stat team references on any save, any time</h2>
+    <p class="hint">Run this during End of Season Recap week, before players graduate or transfer out - that way the stats page correctly shows each player's true school for the season that just ended, before any roster attrition happens. This checks every player's most recent season-stat record against their current roster team and corrects any mismatch, regardless of what bracket size (or whether any bracket at all) you used earlier this season. No bracket is built or touched here.</p>
+    <p class="hint">Records shared by more than one player (a native default/template reference, not real per-player history) are always left alone - only records uniquely tied to one player ever get corrected, so this never risks overwriting someone else's real stats.</p>
+    <button class="primary" id="btnRunSeasonStatFix">Fix season stats for this save</button>
+    <span class="hint" id="seasonStatFixStatus" style="margin-left:10px;"></span>
+    <pre id="seasonStatFixLog" style="margin-top:14px; white-space:pre-wrap; font-size:0.85em; color:#ccc;"></pre>
+  </div>
+</div>
 
 </div>
+
+<script>
+window.standaloneRankingsResult = null;
+
+document.getElementById('btnPreviewStandaloneRankings').addEventListener('click', async () => {
+  const statusEl = document.getElementById('standaloneRankingsStatus');
+  const applyBtn = document.getElementById('btnApplyStandaloneRankings');
+  applyBtn.disabled = true;
+  window.standaloneRankingsResult = null;
+  if (!inputPath) { statusEl.textContent = 'Choose a save file first.'; return; }
+  statusEl.textContent = 'Computing...';
+  const result = await window.api.computeBcsRankings({ inputPath, options: gatherRankingOptions() });
+  if (!result.success) { statusEl.textContent = 'Failed to compute rankings.'; return; }
+  window.standaloneRankingsResult = result.rankings;
+  statusEl.textContent = `Done - ${result.rankings.length} teams ranked.`;
+  const rows = result.rankings.slice(0, 25).map((r, i) => `<tr><td style="padding:4px 10px;">${i + 1}</td><td style="padding:4px 10px;">${r.name}</td></tr>`).join('');
+  document.getElementById('standaloneRankingsPreview').innerHTML = `<table style="border-collapse:collapse;"><tbody>${rows}</tbody></table>`;
+  applyBtn.disabled = false;
+});
+
+document.getElementById('btnApplyStandaloneRankings').addEventListener('click', async () => {
+  const statusEl = document.getElementById('standaloneRankingsApplyStatus');
+  if (!inputPath) { statusEl.textContent = 'Choose a save file first.'; return; }
+  statusEl.textContent = 'Writing...';
+  const result = await window.api.applyStandaloneRankings({ inputPath, outputPath: inputPath, options: gatherRankingOptions() });
+  statusEl.textContent = result.success ? 'Done - save updated.' : `Failed: ${result.error || 'see log'}`;
+  if (result.success) { rankingsReviewed = true; renderConferencesGuide(); }
+});
+
+document.getElementById('btnWriteRankingsFromPanel')?.addEventListener('click', async () => {
+  const statusEl = document.getElementById('rankingsPanelWriteStatus');
+  if (!inputPath) { statusEl.textContent = 'Choose a save file first.'; return; }
+  if (!bcsRankings.length) { statusEl.textContent = 'Run rankings first.'; return; }
+  statusEl.textContent = 'Writing...';
+  const result = await window.api.applyStandaloneRankings({ inputPath, outputPath: inputPath, options: gatherRankingOptions() });
+  if (result.success) {
+    statusEl.textContent = 'Done - save updated.';
+    rankingsReviewed = true;
+    renderConferencesGuide();
+    renderLiveRankingsPanel();
+  } else {
+    statusEl.textContent = `Failed: ${result.error || 'see log'}`;
+  }
+});
+
+document.getElementById('btnSkipRankings')?.addEventListener('click', () => {
+  rankingsReviewed = true;
+  renderConferencesGuide();
+  document.getElementById('rankingsPanelWriteStatus').textContent = 'Skipped — rankings not written to save.';
+});
+
+document.getElementById('btnRunSeasonStatFix').addEventListener('click', async () => {
+  const statusEl = document.getElementById('seasonStatFixStatus');
+  const logEl = document.getElementById('seasonStatFixLog');
+  logEl.textContent = '';
+  if (!inputPath) { statusEl.textContent = 'Choose a save file first.'; return; }
+  const outputPath = await window.api.pickOutputLocation('DYNASTY-SEASON-STAT-FIX.sav');
+  if (!outputPath) return;
+  statusEl.textContent = 'Checking...';
+  const result = await window.api.fixSeasonStatsOnly({ inputPath, outputPath });
+  statusEl.textContent = result.success ? `Done - saved to ${outputPath}` : `Failed: ${result.error || 'see log'}`;
+  logEl.textContent = (result.log || []).join('\n');
+});
+</script>
+
+
 
 </div>
 
@@ -1050,25 +1389,28 @@ function isLowSaturation(hex) {
 // highest-contrast option (gold scores slightly higher on paper) - see
 // SESSION_FINDINGS.md if this needs revisiting.
 function pickFillAndAccent(colors) {
-  const fillCandidates = colors.filter((c) => !isNearBlack(c) && !isNearWhite(c) && !isLowSaturation(c));
-  const usableFills = fillCandidates.length ? fillCandidates : colors;
+  // Fill is ALWAYS the team's listed primary color (colors[0]) - no
+  // exception. The contrast-maximizing search below only picks the
+  // ACCENT from whatever's left; it no longer gets a vote on fill.
+  // Confirmed bug this fixes: Texas's dark navy/charcoal (#333F48)
+  // narrowly survived the low-saturation filter and mathematically
+  // out-contrasted burnt orange against white, so the old fill-picking
+  // logic chose navy over the team's actual real color. Real brand
+  // identity should never lose to a contrast-ratio technicality.
+  const fill = colors[0];
+  const rest = colors.slice(1);
+  const accentPool = rest.length ? rest : colors.filter((c) => c !== fill);
 
-  let bestFill = null;
-  let bestAccent = null;
+  let bestAccent = accentPool[0] || fill;
   let bestRatio = -1;
-  for (const fill of usableFills) {
-    for (const accent of colors) {
-      if (accent === fill) continue;
-      const ratio = contrastRatio(fill, accent);
-      if (ratio > bestRatio) {
-        bestRatio = ratio;
-        bestFill = fill;
-        bestAccent = accent;
-      }
+  for (const accent of accentPool) {
+    const ratio = contrastRatio(fill, accent);
+    if (ratio > bestRatio) {
+      bestRatio = ratio;
+      bestAccent = accent;
     }
   }
-  if (!bestFill) return { fill: colors[0], accent: colors[0] };
-  return { fill: bestFill, accent: bestAccent };
+  return { fill, accent: bestAccent };
 }
 
 // Badge fill is the accent color. Badge text defaults to the box's own
@@ -1551,6 +1893,8 @@ let powerConferences = new Set(['SEC', 'Big Ten', 'Big 12', 'ACC']); // default;
 let detectedChampions = {}; // conference -> team name, from the loaded save
 let detectionRan = false;
 let bcsRankings = []; // our own computed ranking, independent of the game's rank field
+let previousRankings = []; // previous run's rankings for movement indicator comparison
+let rankingsReviewed = false; // true only after user writes or explicitly skips rankings
 
 function switchTab(n) {
   document.querySelectorAll('.tabpanel').forEach(p => p.classList.remove('active'));
@@ -1558,6 +1902,10 @@ function switchTab(n) {
   document.getElementById('tab' + n).classList.add('active');
   document.querySelector(`.tabbtn[data-tab="${n}"]`).classList.add('active');
   renderStepGuide();
+  // Update sidebar and topbar when tab changes.
+  if (typeof updateSidebarActiveState === 'function') updateSidebarActiveState();
+  const titles = { 2:'Format', 3:'Autobids', 4:'Build bracket', 5:'Bracket view', 6:'Bracket history' };
+  if (titles[n]) document.getElementById('topbarTitle').textContent = titles[n];
 }
 
 document.querySelectorAll('.tabbtn').forEach(btn => {
@@ -1669,9 +2017,12 @@ document.querySelectorAll('.formatCard').forEach(card => {
     document.querySelectorAll('.formatCard').forEach(c => c.classList.remove('selected'));
     card.classList.add('selected');
     bracketSize = parseInt(card.dataset.size, 10);
+    document.getElementById('btnApply').textContent =
+      (bracketSize === 2 || bracketSize === 4) ? 'Apply Playoff Games' : 'Apply & Save';
     document.getElementById('btnToTab3').disabled = false;
     document.getElementById('formatHint').textContent = '';
     renderStepGuide();
+    renderNy6LeftoverPanel();
   });
 });
 
@@ -1705,6 +2056,110 @@ document.querySelectorAll('.appSwitchBtn').forEach(btn => {
   });
 });
 
+// ── Sidebar nav wiring ────────────────────────────────────────────
+// Maps sidebar nav items to app/tab switches and keeps active state.
+const APP_TITLES = {
+  conferences: 'Conferences',
+  rankings: 'BCS Rankings',
+  'season-stat-fix': 'Fix season stats',
+};
+const TAB_TITLES = {
+  2: 'Format', 3: 'Autobids', 4: 'Build bracket', 5: 'Bracket view', 6: 'Bracket history',
+};
+
+function switchToApp(appName) {
+  document.querySelectorAll('.appSwitchBtn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.appPanel').forEach(p => p.classList.remove('active'));
+  const legacyBtn = document.querySelector(`.appSwitchBtn[data-app="${appName}"]`);
+  if (legacyBtn) legacyBtn.classList.add('active');
+  const panel = document.getElementById(`app-${appName}`);
+  if (panel) panel.classList.add('active');
+  document.getElementById('topbarTitle').textContent = APP_TITLES[appName] || appName;
+  if (appName === 'conferences') renderConferencesGuide();
+  if (appName === 'bracket') hasVisitedBracketApp = true;
+  updateSidebarActiveState();
+}
+
+function switchToTab(tabNum) {
+  // Switch to the bracket app first.
+  document.querySelectorAll('.appSwitchBtn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.appPanel').forEach(p => p.classList.remove('active'));
+  const legacyBtn = document.querySelector('.appSwitchBtn[data-app="bracket"]');
+  if (legacyBtn) legacyBtn.classList.add('active');
+  document.getElementById('app-bracket').classList.add('active');
+  hasVisitedBracketApp = true;
+  // Then switch the tab.
+  switchTab(tabNum);
+  document.getElementById('topbarTitle').textContent = TAB_TITLES[tabNum] || 'Bracket';
+  updateSidebarActiveState();
+}
+
+function updateSidebarActiveState() {
+  // Clear all active states.
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  const activeApp = document.querySelector('.appPanel.active')?.id?.replace('app-', '');
+  const activeTab = parseInt(document.querySelector('.tabbtn.active')?.dataset.tab, 10);
+  if (activeApp === 'bracket') {
+    const tabNavMap = { 2:'navFormat', 3:'navAutobids', 4:'navBuild', 5:'navView', 6:'navHistory' };
+    const navId = tabNavMap[activeTab];
+    if (navId) document.getElementById(navId)?.classList.add('active');
+  } else if (activeApp === 'conferences') {
+    document.getElementById('navConferences')?.classList.add('active');
+  } else if (activeApp === 'rankings') {
+    document.getElementById('navRankings')?.classList.add('active');
+  } else if (activeApp === 'season-stat-fix') {
+    document.getElementById('navSeasonStat')?.classList.add('active');
+  }
+  // Enable/disable bracket sub-nav items based on how far the user has progressed.
+  const bracketStepsUnlocked = document.querySelector('.tabbtn[data-tab="3"]')?.disabled === false;
+  const buildUnlocked = document.querySelector('.tabbtn[data-tab="4"]')?.disabled === false;
+  ['navAutobids'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) { el.style.opacity = bracketStepsUnlocked ? '1' : '0.4'; el.style.pointerEvents = bracketStepsUnlocked ? '' : 'none'; }
+  });
+  ['navBuild','navView'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) { el.style.opacity = buildUnlocked ? '1' : '0.4'; el.style.pointerEvents = buildUnlocked ? '' : 'none'; }
+  });
+  // Mark setup steps done.
+  if (inputPath) {
+    document.getElementById('navConferences')?.classList.add('done');
+    document.getElementById('navStepConf').textContent = '✓';
+  }
+  if (bcsRankings.length > 0) {
+    document.getElementById('navRankings')?.classList.add('done');
+    document.getElementById('navStepRank').textContent = '✓';
+  }
+  // Update topbar status chips.
+  const statusEl = document.getElementById('topbarStatus');
+  if (statusEl) {
+    const chips = [];
+    if (bcsRankings.length > 0) chips.push(`<span class="status-chip ok">${bcsRankings.length} ranked</span>`);
+    if (bracketSize) chips.push(`<span class="status-chip ok">${bracketSize}-team</span>`);
+    statusEl.innerHTML = chips.join('');
+  }
+}
+
+// Wire sidebar nav items.
+document.getElementById('navConferences')?.addEventListener('click', () => switchToApp('conferences'));
+document.getElementById('navRankings')?.addEventListener('click', () => switchToApp('rankings'));
+document.getElementById('navSeasonStat')?.addEventListener('click', () => switchToApp('season-stat-fix'));
+document.getElementById('navFormat')?.addEventListener('click', () => switchToTab(2));
+document.getElementById('navAutobids')?.addEventListener('click', () => switchToTab(3));
+document.getElementById('navBuild')?.addEventListener('click', () => switchToTab(4));
+document.getElementById('navView')?.addEventListener('click', () => { switchToTab(5); refreshBracketView(); });
+document.getElementById('navHistory')?.addEventListener('click', () => { switchToTab(6); refreshBracketHistoryList(); });
+
+// Sidebar file picker.
+document.getElementById('btnPickInputSidebar')?.addEventListener('click', async () => {
+  document.getElementById('btnPickInput')?.click();
+});
+
+// Update sidebar active state whenever a tab switches.
+const origSwitchTab = switchTab;
+window._sidebarSwitchTabHooked = true;
+
+
 // Live step guide for the Conferences tool - simpler than the Bracket
 // Tool's, since there's no multi-tab wizard here. Step 3 (conference
 // detection) genuinely is a normal step for most people on a first
@@ -1721,28 +2176,83 @@ async function checkConferenceOverridesExist() {
 
 function renderConferencesGuide() {
   const panel = document.getElementById('conferencesGuidePanel');
+  if (!panel) return;
+
   const step1Done = !!inputPath;
-  const step2Done = step1Done && bcsRankings.length > 0;
-  const step3Done = conferenceOverridesExist;
+  const step2Done = step1Done && conferenceOverridesExist;
+  const step3Done = step1Done && rankingsReviewed;
+  const step4Done = !!bracketSize;
+  const step5Done = step4Done && appliedRoundIndex >= 0;
+
   const steps = [
-    { done: step1Done, text: 'Choose your save file at the top of the page.' },
-    { done: step2Done, text: 'Standings and conference champions populate automatically below - nothing else to click.' },
+    {
+      done: step1Done,
+      current: !step1Done,
+      nav: null,
+      text: 'Choose your save file',
+      detail: 'Use "Choose save file…" in the sidebar. Rankings and standings populate automatically.',
+    },
+    {
+      done: step2Done,
+      current: step1Done && !step2Done,
+      nav: 'conferences',
+      text: 'Verify conferences',
+      detail: conferenceOverridesExist
+        ? 'Conference realignment already configured — only revisit if you change your dynasty\'s alignment.'
+        : 'If your dynasty uses a custom realignment, use "Detect conferences" below and save the result. Skip this if you use the default conferences.',
+    },
     {
       done: step3Done,
-      text: step3Done
-        ? 'Conference realignment already set up (teamConferenceOverrides.json exists) - only revisit this if you ever change your conference alignment.'
-        : 'First-time setup for most dynasties: use "Detect conferences from this save\'s schedule" below, review the result (it\'s a starting point, not a guarantee), and save it. One-time - you likely won\'t need to touch this again after.',
+      current: step1Done && !step3Done,
+      nav: 'rankings',
+      text: 'Review BCS Rankings',
+      detail: 'Rankings compute automatically when you load a save. Head to BCS Rankings to tune weights or write rankings to your save.',
     },
-    { done: hasVisitedBracketApp, text: 'Move over to the Bracket tab.' },
+    {
+      done: step4Done,
+      current: step3Done && !step4Done,
+      nav: 'format',
+      text: 'Pick a bracket format',
+      detail: 'Go to Bracket → Format and choose 2, 4, 8, 12, or 16 teams.',
+    },
+    {
+      done: step5Done,
+      current: step4Done && !step5Done,
+      nav: 'build',
+      text: 'Build your bracket and apply',
+      detail: 'Fill in autobids and seeds (At-Large seeds auto-fill from the ranking). Hit Apply — your save is backed up automatically.',
+    },
+    {
+      done: false,
+      current: step5Done,
+      nav: null,
+      text: 'Load the save in-game and continue',
+      detail: step5Done
+        ? 'Your bracket is written. If your own team is in the bracket: switch Dynasty Owner to another team first, retire your coach, then bring them back.'
+        : '',
+    },
   ];
-  const currentIndex = steps.findIndex(s => !s.done);
+
+  const currentIndex = steps.findIndex(s => s.current);
   const itemsHtml = steps.map((s, i) => {
-    const isCurrent = i === currentIndex;
-    const style = isCurrent ? 'color:var(--gold); font-weight:600;' : 'color:var(--text-dim);';
-    const marker = isCurrent ? '&#9654; ' : (s.done ? '&#10003; ' : '');
-    return `<li style="${style}; margin-bottom:6px;">${marker}${s.text}</li>`;
+    const isCurrent = s.current;
+    const style = isCurrent
+      ? 'color:var(--gold); font-weight:600;'
+      : s.done ? 'color:var(--text-dim);' : 'color:var(--text-dim); opacity:0.5;';
+    const marker = isCurrent ? '&#9654;&nbsp;' : s.done ? '&#10003;&nbsp;' : '';
+    const detailHtml = isCurrent && s.detail
+      ? `<div style="font-size:11px; font-weight:400; color:var(--text-dim); margin-top:3px; padding-left:16px;">${s.detail}${s.nav ? ` <span style="color:var(--gold); cursor:pointer; text-decoration:underline;" onclick="${s.nav === 'format' || s.nav === 'build' ? `switchToTab(${s.nav === 'format' ? 2 : 4})` : `switchToApp('${s.nav === 'rankings' ? 'rankings' : 'conferences'}')`}">Go there →</span>` : ''}</div>`
+      : '';
+    return `<li style="${style}; margin-bottom:8px; list-style:none;">${marker}${s.text}${detailHtml}</li>`;
   }).join('');
-  panel.innerHTML = `<ol style="margin:0; padding-left:20px;">${itemsHtml}</ol>`;
+
+  panel.innerHTML = `
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
+      <span style="font-size:11px; text-transform:uppercase; letter-spacing:0.8px; color:var(--gold); font-weight:700;">Your progress</span>
+      <span style="font-size:10px; color:var(--text-dim);">${steps.filter(s => s.done).length} of ${steps.length - 1} done</span>
+    </div>
+    <ul style="margin:0; padding:0;">${itemsHtml}</ul>
+  `;
 }
 
 checkConferenceOverridesExist().then(renderConferencesGuide);
@@ -1876,6 +2386,54 @@ document.getElementById('btnReviewMismatch').addEventListener('click', () => {
 document.getElementById('btnIgnoreMismatch').addEventListener('click', () => {
   document.getElementById('conferenceMismatchBanner').style.display = 'none';
 });
+
+function renderLiveRankingsPanel() {
+  const list = document.getElementById('rankingsLiveList');
+  const status = document.getElementById('rankingsLiveStatus');
+  const applyBtn = document.getElementById('btnApplyStandaloneRankings');
+  if (!list) return;
+  if (!bcsRankings.length) {
+    list.innerHTML = '<div style="padding:12px 16px; font-size:12px; color:var(--text-dim); font-style:italic;">No rankings yet — load a save and hit Run.</div>';
+    if (status) status.textContent = 'Load a save to compute';
+    if (applyBtn) applyBtn.disabled = true;
+    return;
+  }
+  if (status) status.textContent = `${bcsRankings.length} teams ranked`;
+  if (applyBtn) applyBtn.disabled = !inputPath;
+
+  // Build previous rank lookup for movement indicators.
+  const prevRankMap = new Map();
+  previousRankings.forEach((r, i) => prevRankMap.set(r.name, i + 1));
+
+  const top25 = bcsRankings.slice(0, 25);
+  list.innerHTML = top25.map((r, i) => {
+    const rank = i + 1;
+    const champMark = r.isConferenceChampion ? ' <span style="color:var(--gold); font-size:10px;">★</span>' : '';
+
+    // Movement indicator — always show number when there's a prior run.
+    let moveHtml = '<span style="width:36px; text-align:right; flex-shrink:0;"></span>';
+    if (prevRankMap.has(r.name)) {
+      const prevRank = prevRankMap.get(r.name);
+      const delta = prevRank - rank; // positive = moved up
+      if (delta > 0) {
+        moveHtml = `<span style="width:36px; text-align:right; flex-shrink:0; font-size:10px; color:#4caf7d;">▲${delta}</span>`;
+      } else if (delta < 0) {
+        moveHtml = `<span style="width:36px; text-align:right; flex-shrink:0; font-size:10px; color:#e05c5c;">▼${Math.abs(delta)}</span>`;
+      } else {
+        moveHtml = `<span style="width:36px; text-align:right; flex-shrink:0; font-size:10px; color:var(--text-dim);">—</span>`;
+      }
+    } else if (previousRankings.length > 0) {
+      moveHtml = `<span style="width:36px; text-align:right; flex-shrink:0; font-size:10px; color:#4caf7d;">new</span>`;
+    }
+
+    return `<div style="display:flex; align-items:center; gap:8px; padding:5px 14px; border-bottom:1px solid var(--border); font-size:12px;">
+      <span style="width:22px; text-align:right; color:var(--gold); font-weight:700; flex-shrink:0;">${rank}</span>
+      <span style="flex:1;">${r.name}${champMark}</span>
+      ${moveHtml}
+      <span style="color:var(--text-dim); font-size:11px; flex-shrink:0;">${r.wins}-${r.losses}</span>
+    </div>`;
+  }).join('');
+}
 
 function renderRankingsList() {
   const table = document.getElementById('rankingsListTable');
@@ -2112,11 +2670,7 @@ function getSliderValue(id) {
 
 document.getElementById('btnResetDefaults').addEventListener('click', resetSlidersToDefaults);
 
-async function recomputeRankings() {
-  if (!inputPath) {
-    document.getElementById('recomputeStatus').textContent = 'Choose a save file first.';
-    return;
-  }
+function gatherRankingOptions() {
   const computerWeights = {};
   COMPUTER_SYSTEMS.forEach(sys => {
     computerWeights[sys.key] = parseFloat(document.getElementById(`weight_${sys.key}`).value) || 0;
@@ -2139,11 +2693,21 @@ async function recomputeRankings() {
    'winStreakBonus', 'streakLength', 'badLossPenalty', 'badLossThreshold',
    'preseasonBonus'].forEach(id => { pollWeights[id] = getSliderValue(id); });
 
+  return { computerWeights, dropHighLowPerTeam, rpiParams, sosParams, eloK, confSosWeight, pollWeights };
+}
+
+async function recomputeRankings() {
+  if (!inputPath) {
+    document.getElementById('recomputeStatus').textContent = 'Choose a save file first.';
+    return;
+  }
   document.getElementById('recomputeStatus').textContent = 'Recomputing...';
   const result = await window.api.computeBcsRankings({
     inputPath,
-    options: { computerWeights, dropHighLowPerTeam, rpiParams, sosParams, eloK, confSosWeight, pollWeights },
+    options: gatherRankingOptions(),
   });
+  // Snapshot before overwriting so renderLiveRankingsPanel can show movement.
+  if (bcsRankings.length > 0) previousRankings = [...bcsRankings];
   bcsRankings = result.success ? result.rankings : [];
   if (result.success) {
     let statusMsg = `Done - ${bcsRankings.length} teams ranked.`;
@@ -2158,6 +2722,7 @@ async function recomputeRankings() {
     document.getElementById('recomputeStatus').textContent = 'Failed to recompute.';
   }
   renderRankingsList();
+  renderLiveRankingsPanel();
 
   if (document.getElementById('powerConfRows').children.length) {
     renderPowerConfRows();
@@ -2715,6 +3280,7 @@ document.getElementById('btnSaveBracketToHistory').addEventListener('click', asy
     bracketSize,
     rounds: lastLoadedBracketState.rounds,
     champion: lastLoadedBracketState.champion,
+    championCoach: lastLoadedBracketState.championCoach,
   });
   if (!result.success) {
     statusEl.textContent = `Failed: ${result.error}`;
@@ -2726,6 +3292,121 @@ document.getElementById('btnSaveBracketToHistory').addEventListener('click', asy
 
 // --- Tab 6: Bracket History ---
 let bracketHistoryEntries = [];
+
+document.querySelectorAll('.subtabbtn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.subtabbtn').forEach(b => {
+      b.classList.remove('active');
+      b.style.borderBottomColor = 'transparent';
+      b.style.color = 'var(--text-dim)';
+    });
+    document.querySelectorAll('.subtabpanel').forEach(p => { p.style.display = 'none'; p.classList.remove('active'); });
+    btn.classList.add('active');
+    btn.style.borderBottomColor = 'var(--gold)';
+    btn.style.color = 'var(--gold)';
+    const panel = document.getElementById(`subtab-${btn.dataset.subtab}`);
+    panel.style.display = 'block';
+    panel.classList.add('active');
+    if (btn.dataset.subtab === 'stats') renderStats();
+  });
+});
+
+function renderStats() {
+  const container = document.getElementById('statsContainer');
+  if (!bracketHistoryEntries.length) {
+    container.innerHTML = '<p class="hint">No history saved yet.</p>';
+    return;
+  }
+
+  const champCounts = {};   // team -> { count, years: [] }
+  const winCounts = {};     // team -> count (every playoff win, every round, every year)
+  const appearanceCounts = {}; // team -> { count, years: [] }
+  const coachCounts = {};   // coachName -> { count, wins: [{team, year}] }
+
+  for (const entry of bracketHistoryEntries) {
+    const roundsArr = entry.rounds || [];
+    const seenThisYear = new Set();
+    for (const round of roundsArr) {
+      for (const game of round) {
+        if (game.name) seenThisYear.add(game.name);
+      }
+    }
+    for (const team of seenThisYear) {
+      if (!appearanceCounts[team]) appearanceCounts[team] = { count: 0, years: [] };
+      appearanceCounts[team].count++;
+      appearanceCounts[team].years.push(entry.year);
+    }
+
+    // Wins: each round is a flat {name, seed} list, not paired
+    // matchups with an explicit winner - whoever appears in round N+1
+    // necessarily won their round-N game to get there. The final
+    // round has no "next round" to check against, so its winner is
+    // just the top-level champion field instead.
+    for (let r = 0; r < roundsArr.length - 1; r++) {
+      for (const game of roundsArr[r + 1]) {
+        if (game.name) winCounts[game.name] = (winCounts[game.name] || 0) + 1;
+      }
+    }
+    if (entry.champion) {
+      winCounts[entry.champion] = (winCounts[entry.champion] || 0) + 1;
+    }
+
+    if (entry.champion) {
+      if (!champCounts[entry.champion]) champCounts[entry.champion] = { count: 0, years: [] };
+      champCounts[entry.champion].count++;
+      champCounts[entry.champion].years.push(entry.year);
+    }
+    if (entry.championCoach) {
+      if (!coachCounts[entry.championCoach]) coachCounts[entry.championCoach] = { count: 0, wins: [] };
+      coachCounts[entry.championCoach].count++;
+      coachCounts[entry.championCoach].wins.push({ team: entry.champion, year: entry.year });
+    }
+  }
+
+  function topRows(obj, formatExtra) {
+    return Object.entries(obj)
+      .sort((a, b) => b[1].count - a[1].count)
+      .map(([name, info]) => `<tr><td style="padding:4px 12px;">${name}</td><td style="padding:4px 12px;">${info.count}</td><td style="padding:4px 12px; color:var(--text-dim);">${formatExtra(info)}</td></tr>`)
+      .join('');
+  }
+  function topWinRows() {
+    return Object.entries(winCounts)
+      .sort((a, b) => b[1] - a[1])
+      .map(([name, count]) => `<tr><td style="padding:4px 12px;">${name}</td><td style="padding:4px 12px;">${count}</td></tr>`)
+      .join('');
+  }
+
+  container.innerHTML = `
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:24px;">
+      <div>
+        <h3 style="color:var(--gold); font-size:13px; text-transform:uppercase;">Most Championships</h3>
+        <table style="border-collapse:collapse; width:100%;"><thead><tr><th style="text-align:left; padding:4px 12px;">Team</th><th style="text-align:left; padding:4px 12px;">Titles</th><th style="text-align:left; padding:4px 12px;">Years</th></tr></thead>
+        <tbody>${topRows(champCounts, info => info.years.sort().join(', '))}</tbody></table>
+      </div>
+      <div>
+        <h3 style="color:var(--gold); font-size:13px; text-transform:uppercase;">Most Playoff Wins (all rounds, all years)</h3>
+        <table style="border-collapse:collapse; width:100%;"><thead><tr><th style="text-align:left; padding:4px 12px;">Team</th><th style="text-align:left; padding:4px 12px;">Wins</th></tr></thead>
+        <tbody>${topWinRows()}</tbody></table>
+      </div>
+      <div>
+        <h3 style="color:var(--gold); font-size:13px; text-transform:uppercase;">Most Playoff Appearances</h3>
+        <table style="border-collapse:collapse; width:100%;"><thead><tr><th style="text-align:left; padding:4px 12px;">Team</th><th style="text-align:left; padding:4px 12px;">Appearances</th><th style="text-align:left; padding:4px 12px;">Years</th></tr></thead>
+        <tbody>${topRows(appearanceCounts, info => info.years.sort().join(', '))}</tbody></table>
+      </div>
+      <div>
+        <h3 style="color:var(--gold); font-size:13px; text-transform:uppercase;">Most Championships as Coach</h3>
+        <table style="border-collapse:collapse; width:100%;"><thead><tr><th style="text-align:left; padding:4px 12px;">Coach</th><th style="text-align:left; padding:4px 12px;">Titles</th><th style="text-align:left; padding:4px 12px;">Team &amp; Year</th></tr></thead>
+        <tbody>${topRows(coachCounts, info => info.wins.map(w => `${w.team} (${w.year})`).join(', '))}</tbody></table>
+        ${Object.keys(coachCounts).length === 0 ? '<p class="hint" style="margin-top:8px;">No coach data yet - this only starts tracking from seasons saved after this feature shipped.</p>' : ''}
+      </div>
+    </div>
+  `;
+}
+
+document.getElementById('btnRefreshStats').addEventListener('click', async () => {
+  await refreshBracketHistoryList();
+  renderStats();
+});
 
 async function refreshBracketHistoryList() {
   await ensureTeamColorsLoaded();
@@ -2785,7 +3466,7 @@ function makeTeamSelect(id) {
   blank.value = '';
   blank.textContent = '-- choose team --';
   sel.appendChild(blank);
-  for (const name of teamNames) {
+  for (const name of getTeamsSortedByRank()) {
     const opt = document.createElement('option');
     opt.value = name;
     const bcs = getBcsInfo(name);
@@ -2830,7 +3511,7 @@ function makeTeamSelectWithSeed(id, seedLookup) {
   blank.value = '';
   blank.textContent = '-- choose team --';
   sel.appendChild(blank);
-  for (const name of teamNames) {
+  for (const name of getTeamsSortedByRank()) {
     const opt = document.createElement('option');
     opt.value = name;
     const seed = seedLookup[name];
@@ -2877,6 +3558,261 @@ function buildBracketTab() {
   // nothing left to manually pick unless you want to override something.
   autoFillEmptySeeds();
   updateMatchupPreview();
+  renderCustomBowlRows();
+  renderNy6LeftoverPanel();
+}
+
+let customBowlsData = [];
+// Persisted separately from the DOM, keyed by bowl record number.
+// renderCustomBowlRows() gets called from several places (tab switch,
+// rankings recompute, save reload) and rebuilds the select elements
+// from scratch every time - previously that meant any pick a user had
+// already made got silently reset to "Auto" the next time any of those
+// fired, before Apply ever saw it. Restoring from this object on every
+// render, instead of trusting the DOM to hold state between renders,
+// fixes that.
+let customBowlSelections = {}; // record -> { home, away }
+
+function getTeamsSortedByRank() {
+  // If rankings have been computed, ranked teams come first (in rank
+  // order), followed by the remaining unranked teams alphabetically.
+  // Falls back to plain alphabetical when rankings aren't available.
+  if (!bcsRankings.length) return [...teamNames].sort();
+  const rankedNames = bcsRankings.map(r => r.name);
+  const rankedSet = new Set(rankedNames);
+  const unranked = teamNames.filter(n => !rankedSet.has(n)).sort();
+  return [...rankedNames, ...unranked];
+}
+
+function getTeamLabel(name) {
+  const conf = TEAM_CONFERENCE?.[name];
+  const rankIndex = bcsRankings.findIndex(r => r.name === name);
+  const rankingEntry = rankIndex !== -1 ? bcsRankings[rankIndex] : null;
+  const record = rankingEntry ? `${rankingEntry.wins}-${rankingEntry.losses}` : null;
+  const rankLabel = rankIndex !== -1 ? `#${rankIndex + 1} ` : '';
+  const parts = [conf, record].filter(Boolean);
+  return parts.length ? `${rankLabel}${name} (${parts.join(', ')})` : `${rankLabel}${name}`;
+}
+
+function makeCustomBowlTeamSelect(id, record, side) {
+  const sel = document.createElement('select');
+  sel.id = id;
+  const auto = document.createElement('option');
+  auto.value = '';
+  auto.textContent = 'Auto (leave untouched)';
+  sel.appendChild(auto);
+  for (const name of getTeamsSortedByRank()) {
+    const opt = document.createElement('option');
+    opt.value = name;
+    opt.textContent = getTeamLabel(name);
+    sel.appendChild(opt);
+  }
+  sel.value = customBowlSelections[record]?.[side] || '';
+  sel.addEventListener('change', () => {
+    customBowlSelections[record] = customBowlSelections[record] || {};
+    customBowlSelections[record][side] = sel.value;
+    updateCustomizedBowlsHint();
+  });
+  return sel;
+}
+
+async function renderCustomBowlRows() {
+  const panel = document.getElementById('customBowlsPanel');
+  const container = document.getElementById('customBowlRows');
+  if (!bracketSize) { panel.style.display = 'none'; return; }
+  const result = await window.api.getCustomizableBowls({ bracketSize });
+  if (!result.success || !result.bowls.length) { panel.style.display = 'none'; return; }
+  customBowlsData = result.bowls;
+  panel.style.display = 'block';
+  document.getElementById('customBowlsCount').textContent = result.bowls.length;
+  container.innerHTML = '';
+  for (const bowl of result.bowls) {
+    const row = document.createElement('div');
+    row.className = 'customBowlRow';
+    row.style.cssText = 'display:grid; grid-template-columns:160px 1fr 1fr; gap:8px; align-items:center; margin-bottom:6px;';
+    row.dataset.record = bowl.record;
+    row.dataset.searchName = bowl.name.toLowerCase();
+    const label = document.createElement('div');
+    label.className = 'seedLabel';
+    label.textContent = bowl.name;
+    const homeSel = makeCustomBowlTeamSelect(`customBowlHome_${bowl.record}`, bowl.record, 'home');
+    const awaySel = makeCustomBowlTeamSelect(`customBowlAway_${bowl.record}`, bowl.record, 'away');
+    row.append(label, homeSel, awaySel);
+    container.appendChild(row);
+  }
+  filterCustomBowlRows();
+  updateCustomizedBowlsHint();
+}
+
+function filterCustomBowlRows() {
+  const query = (document.getElementById('customBowlSearch')?.value || '').trim().toLowerCase();
+  const rows = document.querySelectorAll('#customBowlRows .customBowlRow');
+  let visibleCount = 0;
+  rows.forEach(row => {
+    const matches = !query || row.dataset.searchName.includes(query);
+    row.style.display = matches ? '' : 'none';
+    if (matches) visibleCount++;
+  });
+  const noResults = document.getElementById('customBowlNoResults');
+  if (noResults) noResults.style.display = (query && visibleCount === 0) ? 'block' : 'none';
+}
+
+function updateCustomizedBowlsHint() {
+  const customizedCount = Object.values(customBowlSelections).filter(s => s?.home && s?.away).length;
+  const hintEl = document.getElementById('customBowlsCustomizedHint');
+  if (!hintEl) return;
+  if (customizedCount > 0) {
+    hintEl.textContent = `${customizedCount} bowl${customizedCount === 1 ? '' : 's'} customized`;
+    hintEl.style.display = 'inline';
+  } else {
+    hintEl.style.display = 'none';
+  }
+}
+
+document.getElementById('btnToggleCustomBowls').addEventListener('click', () => {
+  const expanded = document.getElementById('customBowlsExpanded');
+  const btn = document.getElementById('btnToggleCustomBowls');
+  const isOpen = expanded.style.display !== 'none';
+  expanded.style.display = isOpen ? 'none' : 'block';
+  btn.textContent = isOpen
+    ? `Show bowls (${customBowlsData.length})`
+    : `Hide bowls (${customBowlsData.length})`;
+});
+
+document.getElementById('customBowlSearch').addEventListener('input', filterCustomBowlRows);
+
+function getCustomBowlMatchups() {
+  return customBowlsData
+    .map(bowl => {
+      const sel = customBowlSelections[bowl.record];
+      const home = sel?.home;
+      const away = sel?.away;
+      if (!home || !away) return null;
+      return { record: bowl.record, name: bowl.name, home, away };
+    })
+    .filter(Boolean);
+}
+
+let ny6LeftoverSlots = [];
+let ny6BowlNames = [];
+let ny6Selections = {}; // record -> bowlName, persisted the same way as customBowlSelections
+
+async function renderNy6LeftoverPanel() {
+  const panel = document.getElementById('ny6LeftoverPanel');
+  const container = document.getElementById('ny6LeftoverRows');
+  if (!bracketSize) { panel.style.display = 'none'; return; }
+  const result = await window.api.getNy6LeftoverSlots({ bracketSize, inputPath });
+  const slotData = result.slots || [];
+  ny6LeftoverSlots = slotData.map(s => s.record);
+  ny6BowlNames = result.bowlNames || [];
+  if (!ny6LeftoverSlots.length) { panel.style.display = 'none'; return; }
+  panel.style.display = 'block';
+  container.innerHTML = '';
+  for (const { record, bowlLabel, home, away } of slotData) {
+    const row = document.createElement('div');
+    row.className = 'seedRow';
+    row.style.cssText = 'display:flex; align-items:center; gap:8px; flex-wrap:nowrap; margin-bottom:8px;';
+    const label = document.createElement('div');
+    label.className = 'seedLabel';
+    label.style.cssText = 'min-width:80px; flex-shrink:0;';
+    const currentMatchup = (home && away) ? `${away} @ ${home}` : 'TBD';
+    label.innerHTML = `<b>${bowlLabel || `Record ${record}`}</b><br><span style="font-size:0.8em; color:var(--text-dim);">${currentMatchup}</span>`;
+
+    const bowlSel = null; // bowl-identity picker removed - CFP presentation inseparable from IsPlayoffBowl flag
+
+    const homeSel = document.createElement('select');
+    const homeAuto = document.createElement('option');
+    homeAuto.value = '';
+    homeAuto.textContent = 'Home: Auto';
+    homeSel.appendChild(homeAuto);
+    for (const name of getTeamsSortedByRank()) {
+      const opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = getTeamLabel(name);
+      homeSel.appendChild(opt);
+    }
+    homeSel.value = ny6Selections[record]?.home || '';
+    homeSel.addEventListener('change', () => {
+      ny6Selections[record] = ny6Selections[record] || {};
+      ny6Selections[record].home = homeSel.value;
+      updateMatchupPreview();
+    });
+
+    const awaySel = document.createElement('select');
+    const awayAuto = document.createElement('option');
+    awayAuto.value = '';
+    awayAuto.textContent = 'Away: Auto';
+    awaySel.appendChild(awayAuto);
+    for (const name of getTeamsSortedByRank()) {
+      const opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = getTeamLabel(name);
+      awaySel.appendChild(opt);
+    }
+    awaySel.value = ny6Selections[record]?.away || '';
+    awaySel.addEventListener('change', () => {
+      ny6Selections[record] = ny6Selections[record] || {};
+      ny6Selections[record].away = awaySel.value;
+      updateMatchupPreview();
+    });
+
+    row.append(label, homeSel, awaySel);
+    container.appendChild(row);
+  }
+}
+
+function getNy6BowlAssignments() {
+  return ny6LeftoverSlots
+    .map(record => {
+      const sel = ny6Selections[record];
+      if (!sel || (!sel.home && !sel.away)) return null;
+      const bothTeamsSet = sel.home && sel.away;
+      if (!bothTeamsSet) return null;
+      return { record, home: sel.home, away: sel.away };
+    })
+    .filter(Boolean);
+}
+
+function autoFillNy6Leftover() {
+  if (!bcsRankings.length || !ny6LeftoverSlots.length) return;
+  const alreadyUsed = new Set();
+  for (let i = 0; i < bracketSize; i++) {
+    const name = getSeedName(i);
+    if (name) alreadyUsed.add(name);
+  }
+  const availableByRank = bcsRankings.filter(r => !alreadyUsed.has(r.name));
+  const neededCount = ny6LeftoverSlots.length * 2;
+  const pool = availableByRank.slice(0, neededCount).map(r => r.name);
+
+  console.log('[NY6 auto-fill] bracketSize:', bracketSize, 'alreadyUsed:', [...alreadyUsed], 'bcsRankings.length:', bcsRankings.length, 'pool:', pool);
+
+  if (pool.length < neededCount) {
+    console.warn('[NY6 auto-fill] Not enough ranked teams remaining - aborting, nothing filled.', { poolLength: pool.length, neededCount });
+    return;
+  }
+  const uniquePoolCount = new Set(pool).size;
+  if (uniquePoolCount < pool.length) {
+    // Defensive check - this should never happen (bcsRankings should
+    // never contain the same team twice), but if it does, abort loudly
+    // rather than silently writing duplicate/wrong matchups.
+    console.error('[NY6 auto-fill] Pool contains duplicate team names - aborting.', { pool, uniquePoolCount });
+    alert('Auto-fill found duplicate teams in the ranking pool and stopped without changing anything - this looks like a bug. Check the browser console (F12) for details and report this.');
+    return;
+  }
+
+  // Standard bracket-style pairing: best-remaining vs worst-remaining
+  // of the pool (5v12, 6v11, 7v10, 8v9 for a 4-slot pool), not just
+  // sequential pairing - matches the same pairing convention already
+  // used for the 12-team bracket's own Round 1 (5v12, 6v11, ...).
+  for (let i = 0; i < ny6LeftoverSlots.length; i++) {
+    const record = ny6LeftoverSlots[i];
+    const home = pool[i];
+    const away = pool[pool.length - 1 - i];
+    ny6Selections[record] = ny6Selections[record] || {};
+    ny6Selections[record].home = home;
+    ny6Selections[record].away = away;
+  }
+  renderNy6LeftoverPanel();
 }
 
 function autoFillEmptySeeds() {
@@ -2903,6 +3839,37 @@ function autoFillEmptySeeds() {
 document.getElementById('btnAutoFillSeeds').addEventListener('click', () => {
   autoFillEmptySeeds();
   updateMatchupPreview();
+});
+
+document.getElementById('btnAutoFillNy6').addEventListener('click', () => {
+
+// Reseeding mode toggles - re-render the matchup rows when changed.
+document.querySelectorAll('input[name="reseedMode16"]').forEach(r =>
+  r.addEventListener('change', () => { if (round1Games.length) renderRound2MatchupRows(); })
+);
+document.querySelectorAll('input[name="reseedMode12"]').forEach(r =>
+  r.addEventListener('change', () => { if (round1Games12.length) renderRound1Results12(); })
+);
+  autoFillNy6Leftover();
+  updateMatchupPreview();
+});
+
+document.getElementById('btnToggleTop25').addEventListener('click', () => {
+  const el = document.getElementById('top25Snapshot');
+  const btn = document.getElementById('btnToggleTop25');
+  const isOpen = el.style.display !== 'none';
+  if (isOpen) {
+    el.style.display = 'none';
+    btn.textContent = 'Show Top 25';
+  } else {
+    if (!bcsRankings.length) {
+      el.innerHTML = '<span class="hint">Recompute rankings first (BCS Rankings tab) to see this.</span>';
+    } else {
+      el.innerHTML = bcsRankings.slice(0, 25).map((r, i) => `<div>#${i + 1} ${r.name} (${r.wins}-${r.losses})</div>`).join('');
+    }
+    el.style.display = 'block';
+    btn.textContent = 'Hide Top 25';
+  }
 });
 
 function getSeedName(i) {
@@ -2972,10 +3939,19 @@ function updateMatchupPreview() {
     });
   }
 
-  // Apply is only enabled when all required slots are filled.
-  const allSet = bracketSize === 12
+  // Apply is enabled when all required bracket slots are filled, OR
+  // when there's nothing bracket-related to apply yet but NY6 leftover
+  // assignments are queued - supports deliberately applying NY6-only at
+  // an earlier week, deferring the real bracket teams (932/933 for a
+  // 4-team format, 401 for 2-team) to a later week once they're
+  // actually decided. Never silently writes garbage either way -
+  // writeGame's own safeguards still throw if a bracket slot is
+  // partially (not fully) filled.
+  const allBracketSeedsSet = bracketSize === 12
     ? matchups.filter(m => m.isByeGame).every(m => m.home) && matchups.filter(m => !m.isByeGame).every(m => m.home && m.away)
     : matchups.every(m => m.home && m.away);
+  const hasNy6Assignments = typeof getNy6BowlAssignments === 'function' && getNy6BowlAssignments().length > 0;
+  const allSet = allBracketSeedsSet || hasNy6Assignments;
   document.getElementById('btnApply').disabled = !allSet || !inputPath;
 }
 
@@ -2986,17 +3962,30 @@ document.getElementById('btnPickInput').addEventListener('click', async () => {
     inputPath = path;
     await window.checkAndMaybeShowCoachProtect(path);
     document.getElementById('filePathDisplay').textContent = path;
+    const fname = path.split(/[\\/]/).pop();
+    const sfName = document.getElementById('sidebarFileName');
+    const sfNone = document.getElementById('sidebarFileNone');
+    if (sfName) { sfName.textContent = fname; sfName.style.display = 'block'; }
+    if (sfNone) sfNone.style.display = 'none';
     document.getElementById('detectStatus').textContent = 'Detecting conference champions...';
-    document.getElementById('rankingLoadStatus').textContent = 'Computing our own ranking from real game results...';
+    document.getElementById('rankingLoadStatus').textContent = 'Rankings will compute when needed.';
 
-    const result = await window.api.detectConferenceChampions({ inputPath });
-    if (result.success) {
-      detectedChampions = result.champions;
+    // Run conference detection and rankings in parallel rather than
+    // sequentially - each opens the save independently, so they don't
+    // need to wait for each other. Cuts file-load time roughly in half
+    // for the initial save open.
+    const [confResult, bcsResult] = await Promise.all([
+      window.api.detectConferenceChampions({ inputPath }),
+      window.api.computeBcsRankings({ inputPath }),
+    ]);
+
+    if (confResult.success) {
+      detectedChampions = confResult.champions;
       detectionRan = true;
       const count = Object.keys(detectedChampions).length;
       let statusMsg = `${count} champions detected from save`;
-      if (result.unmatched && result.unmatched.length) {
-        statusMsg += ` - WARNING: ${result.unmatched.length} title game(s) didn't match a known conference (${result.unmatched.map(g => `${g.home} vs ${g.away}`).join(', ')}). If your dynasty uses a different conference realignment than this tool's defaults, edit teamConferenceOverrides.json and restart.`;
+      if (confResult.unmatched && confResult.unmatched.length) {
+        statusMsg += ` - WARNING: ${confResult.unmatched.length} title game(s) didn't match a known conference (${confResult.unmatched.map(g => `${g.home} vs ${g.away}`).join(', ')}). If your dynasty uses a different conference realignment than this tool's defaults, edit teamConferenceOverrides.json and restart.`;
         document.getElementById('detectStatus').style.color = 'var(--red)';
       } else {
         document.getElementById('detectStatus').style.color = '';
@@ -3008,8 +3997,10 @@ document.getElementById('btnPickInput').addEventListener('click', async () => {
       document.getElementById('detectStatus').textContent = 'Detection failed - fill in manually';
     }
 
-    const bcsResult = await window.api.computeBcsRankings({ inputPath });
     bcsRankings = bcsResult.success ? bcsResult.rankings : [];
+    previousRankings = []; // fresh load — no prior run to compare against
+    rankingsReviewed = false; // user hasn't reviewed rankings for this save yet
+    renderLiveRankingsPanel();
     if (bcsResult.success) {
       let statusMsg = `Ranked ${bcsRankings.length} teams.`;
       if (bcsResult.unmatchedConfGames && bcsResult.unmatchedConfGames.length) {
@@ -3026,6 +4017,7 @@ document.getElementById('btnPickInput').addEventListener('click', async () => {
     renderStandings();
     renderConferencesGuide();
     checkConferenceMismatchSilently();
+    if (typeof updateSidebarActiveState === 'function') updateSidebarActiveState();
     checkGameFingerprintSilently(inputPath);
 
     // Re-render if the user has already reached tab 2/3
@@ -3036,6 +4028,7 @@ document.getElementById('btnPickInput').addEventListener('click', async () => {
     if (document.getElementById('seedRows').children.length) {
       buildBracketTab();
     }
+    renderNy6LeftoverPanel();
     updateMatchupPreview();
   }
 });
@@ -3052,6 +4045,15 @@ document.getElementById('btnApply').addEventListener('click', async () => {
   const matchups = computeMatchups();
 
   const config = { bracketSize };
+  const champTeam = window.getChampionshipStadiumTeam ? window.getChampionshipStadiumTeam() : null;
+  if (champTeam) config.championshipStadiumTeam = champTeam;
+  const customBowls = getCustomBowlMatchups();
+  if (customBowls.length) config.customBowlMatchups = customBowls;
+  // NY6 leftover slot teams are intentionally NOT included here -
+  // those are written separately via "Apply BCS/NY6 Games Only" in an
+  // earlier week. Including them here would re-run that write at the
+  // wrong time (playoff week), overwriting whatever the game natively
+  // scheduled for those slots by then.
   if (bracketSize === 16) {
     config.round1 = matchups.map(m => ({ home: m.home, away: m.away }));
     config.round2 = [];
@@ -3127,12 +4129,9 @@ document.getElementById('btnApply').addEventListener('click', async () => {
     }
   }
 
-  const outputPath = await window.api.pickOutputLocation('DYNASTY-BRACKET-OUTPUT.sav');
-  if (!outputPath) return;
-
   logEl.textContent = 'Running...';
   logEl.style.color = '';
-  const result = await window.api.runEdit({ inputPath, outputPath, config });
+  const result = await window.api.runEdit({ inputPath, outputPath: inputPath, config });
   logEl.textContent = result.log.join('\n');
   logEl.style.color = result.success ? '' : 'var(--red)';
   if (result.success) {
@@ -3140,6 +4139,40 @@ document.getElementById('btnApply').addEventListener('click', async () => {
     appliedRoundIndex = Math.max(appliedRoundIndex, 0);
     inputPath = outputPath;
     if (document.getElementById('tab5').classList.contains('active')) refreshBracketView();
+    renderConferencesGuide();
+  }
+});
+
+document.getElementById('btnApplyNy6Only').addEventListener('click', async () => {
+  const statusEl = document.getElementById('ny6ApplyStatus');
+  const logEl = document.getElementById('ny6ApplyLog');
+  if (!inputPath) { statusEl.textContent = 'Choose a save file first.'; return; }
+
+  // Deliberately minimal - no round1/round2/quarterfinals/playoffTeams/
+  // seedAssignments/rankingOrder/championshipStadiumTeam. This is the
+  // whole point of this button: structurally impossible for a BCS-week
+  // run to touch the real playoff bracket, even by accident. That's what
+  // caused the earlier crash - a bracket-size mismatch with round1 got
+  // submitted bundled together with NY6 picks in a single Apply.
+  const config = { bracketSize };
+  const customBowls = getCustomBowlMatchups();
+  if (customBowls.length) config.customBowlMatchups = customBowls;
+  const ny6Assignments = getNy6BowlAssignments();
+  if (ny6Assignments.length) config.ny6BowlAssignments = ny6Assignments;
+
+  if (!customBowls.length && !ny6Assignments.length) {
+    statusEl.textContent = 'Nothing picked in either panel above - nothing to apply.';
+    return;
+  }
+
+  statusEl.textContent = 'Running...';
+  logEl.style.color = '';
+  const result = await window.api.runEdit({ inputPath, outputPath: inputPath, config });
+  logEl.textContent = result.log.join('\n');
+  logEl.style.color = result.success ? '' : 'var(--red)';
+  statusEl.textContent = result.success ? 'Done - save updated.' : 'Failed - see log below.';
+  if (result.success) {
+    inputPath = inputPath;
   }
 });
 
@@ -3233,20 +4266,43 @@ function renderRound2MatchupRows() {
   const container = document.getElementById('round2Rows');
   container.innerHTML = '';
   const winners = getConfirmedWinners();
+  const reseedMode = document.querySelector('input[name="reseedMode16"]:checked')?.value || 'reseed';
 
-  // Reseed: sort surviving teams by seed (best first, unknown seeds last),
-  // then pair best-vs-worst working inward - same logic real CFP reseeding
-  // uses each round, rather than just carrying forward bracket-order pairs.
-  const seeded = winners.filter(w => w.name && w.seed !== null).sort((a, b) => a.seed - b.seed);
-  const unseeded = winners.filter(w => w.name && w.seed === null);
-  const ordered = [...seeded, ...unseeded];
+  let ordered;
+  if (reseedMode === 'bracket') {
+    // Bracket order: winners advance within their half of the original bracket.
+    // Pairings are fixed by the seed structure (stable season-to-season since
+    // game indices are hardcoded by construction in the bracket writer):
+    //   QF1: winner of game 0 (1v16)  vs winner of game 7 (8v9)
+    //   QF2: winner of game 3 (4v13)  vs winner of game 4 (5v12)
+    //   QF3: winner of game 2 (3v14)  vs winner of game 5 (6v11)
+    //   QF4: winner of game 1 (2v15)  vs winner of game 6 (7v10)
+    const bracketPairs = [[0,7],[3,4],[2,5],[1,6]];
+    ordered = [];
+    for (const [a, b] of bracketPairs) {
+      ordered.push(winners[a] || { name: null, seed: null });
+      ordered.push(winners[b] || { name: null, seed: null });
+    }
+  } else {
+    // Reseed: sort surviving teams by seed (best first, unknown seeds last),
+    // then pair best-vs-worst working inward.
+    const seeded = winners.filter(w => w.name && w.seed !== null).sort((a, b) => a.seed - b.seed);
+    const unseeded = winners.filter(w => w.name && w.seed === null);
+    ordered = [...seeded, ...unseeded];
+  }
 
   const hint = document.createElement('p');
   hint.className = 'hint';
   hint.style.marginBottom = '10px';
-  hint.textContent = ordered.length === 8
-    ? 'Pre-filled using reseeding: best surviving seed hosts the worst surviving seed, working inward. Override anything below if you want a different pairing.'
-    : 'Confirm all 8 winners above to get an automatic reseed - showing a partial/best-effort pairing for now.';
+  if (reseedMode === 'bracket') {
+    hint.textContent = ordered.length === 8
+      ? 'Pre-filled using bracket order: winners advance within their half of the bracket. Override anything below if needed.'
+      : 'Confirm all 8 winners above for automatic bracket-order pairing.';
+  } else {
+    hint.textContent = ordered.length === 8
+      ? 'Pre-filled using reseeding: best surviving seed hosts the worst surviving seed, working inward. Override anything below if you want a different pairing.'
+      : 'Confirm all 8 winners above to get an automatic reseed - showing a partial/best-effort pairing for now.';
+  }
   container.appendChild(hint);
 
   for (let i = 0; i < 4; i++) {
@@ -3254,8 +4310,10 @@ function renderRound2MatchupRows() {
     row.className = 'seedRow';
     row.style.gridTemplateColumns = '80px 1fr 1fr';
 
-    const home = ordered[i];
-    const away = ordered[ordered.length - 1 - i];
+    // In reseed mode: ordered is sorted by seed, pair best[i] vs worst[7-i].
+    // In bracket mode: ordered is sequential pairs — [pair0a, pair0b, pair1a, pair1b, ...]
+    const home = reseedMode === 'bracket' ? ordered[i * 2]     : ordered[i];
+    const away = reseedMode === 'bracket' ? ordered[i * 2 + 1] : ordered[ordered.length - 1 - i];
 
     const label = document.createElement('div');
     label.className = 'seedLabel';
@@ -3365,6 +4423,7 @@ document.getElementById('btnCheckRound1_12').addEventListener('click', async () 
 function renderRound1Results12() {
   const container = document.getElementById('round1ResultsRows12');
   container.innerHTML = '';
+  const reseedMode = document.querySelector('input[name="reseedMode12"]:checked')?.value || 'cfp';
   round1Games12.forEach((g, i) => {
     const bye = byes12[i];
     const byeSeed = bye ? bye.byeSeed : 4 - i;
@@ -3379,9 +4438,14 @@ function renderRound1Results12() {
     title.style.fontSize = '12px';
     title.style.color = 'var(--text-dim)';
     title.style.marginBottom = '6px';
-    title.textContent = g.home && g.away
-      ? `${g.label}: #${g.awaySeed} ${g.away} vs #${g.homeSeed} ${g.home} - winner plays #${byeSeed} ${byeName}`
-      : `${g.label}: not set yet`;
+    if (g.home && g.away) {
+      const pairingNote = reseedMode === 'reseed'
+        ? '(pairing determined after all winners confirmed)'
+        : `winner plays #${byeSeed} ${byeName}`;
+      title.textContent = `${g.label}: #${g.awaySeed} ${g.away} vs #${g.homeSeed} ${g.home} — ${pairingNote}`;
+    } else {
+      title.textContent = `${g.label}: not set yet`;
+    }
 
     const label = document.createElement('label');
     label.style.fontSize = '11px';
@@ -3408,19 +4472,99 @@ function updateRound2ApplyState12() {
     if (!sel || !sel.value) allSet = false;
   }
   document.getElementById('btnApplyRound2_12').disabled = !allSet || !round2InputPath12;
+  renderQfMatchupPreview12(allSet);
+}
+
+function renderQfMatchupPreview12(allSet) {
+  const preview = document.getElementById('qfMatchupPreview12');
+  const container = document.getElementById('qfMatchupRows12');
+  if (!preview || !container) return;
+  if (!allSet) { preview.style.display = 'none'; return; }
+  preview.style.display = 'block';
+  container.innerHTML = '';
+
+  const reseedMode = document.querySelector('input[name="reseedMode12"]:checked')?.value || 'cfp';
+  let quarterfinals;
+  if (reseedMode === 'reseed') {
+    const winners = round1Games12.map((g, i) => {
+      const sel = document.getElementById(`round1Winner12_${i}`);
+      const name = sel?.value;
+      const seed = name === g.home ? g.homeSeed : name === g.away ? g.awaySeed : null;
+      return { name, seed };
+    });
+    const byeEntries = byes12.map(b => ({ name: b.name, seed: b.byeSeed }));
+    const all8 = [...winners, ...byeEntries];
+    const seeded = all8.filter(t => t.name && t.seed !== null).sort((a, b) => a.seed - b.seed);
+    const unseeded = all8.filter(t => t.name && t.seed === null);
+    const ordered = [...seeded, ...unseeded];
+    quarterfinals = [];
+    for (let i = 0; i < 4; i++) {
+      quarterfinals.push({ home: ordered[i]?.name, homeSeed: ordered[i]?.seed, away: ordered[ordered.length - 1 - i]?.name, awaySeed: ordered[ordered.length - 1 - i]?.seed });
+    }
+  } else {
+    quarterfinals = round1Games12.map((g, i) => {
+      const sel = document.getElementById(`round1Winner12_${i}`);
+      return { home: byes12[i].name, homeSeed: byes12[i].byeSeed, away: sel?.value, awaySeed: null };
+    });
+  }
+
+  for (let i = 0; i < quarterfinals.length; i++) {
+    const qf = quarterfinals[i];
+    const row = document.createElement('div');
+    row.className = 'seedRow';
+    row.style.gridTemplateColumns = '80px 1fr 1fr';
+    const label = document.createElement('div');
+    label.className = 'seedLabel';
+    label.innerHTML = `<span class="tag">QF ${i + 1}</span>#${qf.homeSeed || '?'} vs #${qf.awaySeed || '?'}`;
+    const homeSel = makeTeamSelectWithSeed(`qf12Home_${i}`, getOriginalSeedLookup());
+    const awaySel = makeTeamSelectWithSeed(`qf12Away_${i}`, getOriginalSeedLookup());
+    if (qf.home) homeSel.value = qf.home;
+    if (qf.away) awaySel.value = qf.away;
+    row.append(label, homeSel, awaySel);
+    container.appendChild(row);
+  }
 }
 
 document.getElementById('btnApplyRound2_12').addEventListener('click', async () => {
   const logEl = document.getElementById('round2Log12');
-  const quarterfinals = round1Games12.map((g, i) => {
-    const winnerSel = document.getElementById(`round1Winner12_${i}`);
-    return { home: byes12[i].name, away: winnerSel.value };
-  });
+  const reseedMode = document.querySelector('input[name="reseedMode12"]:checked')?.value || 'cfp';
+
+  let quarterfinals;
+  // Read from the QF preview dropdowns (user may have overridden pairings).
+  const qfRows = document.querySelectorAll('#qfMatchupRows12 .seedRow');
+  if (qfRows.length === 4) {
+    quarterfinals = [];
+    for (let i = 0; i < 4; i++) {
+      const homeSel = document.getElementById(`qf12Home_${i}`);
+      const awaySel = document.getElementById(`qf12Away_${i}`);
+      quarterfinals.push({ home: homeSel?.value, away: awaySel?.value });
+    }
+  } else if (reseedMode === 'reseed') {
+    // Fallback if preview rows aren't rendered yet.
+    const winners = round1Games12.map((g, i) => {
+      const winnerSel = document.getElementById(`round1Winner12_${i}`);
+      const name = winnerSel?.value;
+      const seed = name === g.home ? g.homeSeed : name === g.away ? g.awaySeed : null;
+      return { name, seed };
+    });
+    const byeEntries = byes12.map(b => ({ name: b.name, seed: b.byeSeed }));
+    const all8 = [...winners, ...byeEntries];
+    const seeded = all8.filter(t => t.name && t.seed !== null).sort((a, b) => a.seed - b.seed);
+    const unseeded = all8.filter(t => t.name && t.seed === null);
+    const ordered = [...seeded, ...unseeded];
+    quarterfinals = [];
+    for (let i = 0; i < 4; i++) {
+      quarterfinals.push({ home: ordered[i]?.name, away: ordered[ordered.length - 1 - i]?.name });
+    }
+  } else {
+    quarterfinals = round1Games12.map((g, i) => {
+      const winnerSel = document.getElementById(`round1Winner12_${i}`);
+      return { home: byes12[i].name, away: winnerSel.value };
+    });
+  }
+
   const config = {
     bracketSize: 12,
-    // No config.round1 here deliberately - this pass only touches the
-    // Quarterfinal records (928-931), never re-touches Round 1 (924-927),
-    // which has already been played and shouldn't be disturbed.
     quarterfinals,
     playoffTeams: quarterfinals.flatMap(m => [m.home, m.away]).filter(Boolean),
     rankingOrder: bcsRankings.map(r => r.name),
@@ -3449,8 +4593,22 @@ async function init() {
   TEAM_CONFERENCE = confData.TEAM_CONFERENCE;
   renderWeightRows();
   renderSliders();
+
+  const champSelect = document.getElementById('championshipStadiumSelect');
+  const premierGroup = document.getElementById('premierStadiumGroup');
+  if (champSelect && premierGroup) {
+    const premierStadiums = await window.api.getPremierStadiums();
+    for (const name of premierStadiums) {
+      const opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = name;
+      premierGroup.appendChild(opt);
+    }
+  }
 }
 init();
+// Set initial sidebar active state (Conferences is active on load).
+document.getElementById('navConferences')?.classList.add('active');
 </script>
 </body>
 </html>

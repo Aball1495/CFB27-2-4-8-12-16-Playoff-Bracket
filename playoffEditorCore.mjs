@@ -43,7 +43,7 @@ function resolveTable(franchise, uniqueId, tableName) {
   if (matches.length === 0) {
     // Fallback to name lookup if uniqueId not found - handles edge cases
     // where the library hasn't fully parsed the header yet.
-    const byName = franchise.tables.filter(t => t.header.uniqueId === expected.uniqueId || t.name === tableName);
+    const byName = franchise.tables.filter(t => t.header.uniqueId === uniqueId || t.name === tableName);
     if (byName.length === 0) throw new Error(`Table "${tableName}" (uniqueId ${uniqueId}) not found in this save.`);
     return byName.reduce((a, r) => (r.header.recordCapacity > a.header.recordCapacity ? r : a));
   }
@@ -210,7 +210,7 @@ async function syncPollRanksToSave(inputPath, outputPath, schemaDirectory, seedA
   const log = [];
   const franchise = await Franchise.create(inputPath, {
     schemaDirectory,
-    schemaOverride: { major: 472, minor: 0, gameYear: 27, path: path.join(schemaDirectory, '472_0.gz') },
+    schemaOverride: { major: 486, minor: 1, gameYear: 27, path: path.join(schemaDirectory, '486_1.gz') },
   });
 
   const teamTable = resolveTable(franchise, TABLE_UNIQUE_IDS.Team, 'Team');
@@ -362,17 +362,30 @@ function normalizeSeasonWeek(rawWeek) {
 
 /**
  * Scan the whole SeasonGame table for Conference Championship week games
- * (SeasonWeek === 15, normalized for whatever season this save is on) and
- * return each one's home/away team rows plus the winning team's row.
+ * (SeasonWeek === 15) and return each one's home/away team rows plus the
+ * winning team's row.
+ *
+ * Uses the schema-safe SeasonWeek field directly (seasonGameTable.records[i])
+ * instead of the raw-buffer bit reading. CONFIRMED via real save testing:
+ * the raw-buffer week reading (SEASON_WEEK_BIT + mod-17 unwrap) disagreed
+ * with the schema-safe SeasonWeek field on 100% of games checked in one
+ * real save - meaning this function's original week===15 check, which
+ * determines conference champions for autobid seeding, could have been
+ * silently matching or missing the wrong games this whole time. WINNER_BIT
+ * stays as raw-buffer (separately confirmed correct against 10 real
+ * in-game results, unaffected by this issue).
+ *
+ * seasonGameTable must already have had .readRecords() called on it by
+ * the caller (schema-aware Franchise table, same recordCount as buf).
  */
-function findConferenceChampionshipGames(buf, recordsStart, recordSize, recordCount) {
+function findConferenceChampionshipGames(buf, recordsStart, recordSize, recordCount, seasonGameTable) {
   const games = [];
   for (let i = 0; i < recordCount; i++) {
+    let week;
+    try { week = seasonGameTable.records[i]?.['SeasonWeek']; } catch { continue; }
+    if (week !== 15) continue;
     const recStart = recordsStart + i * recordSize;
     const recordBuf = buf.subarray(recStart, recStart + recordSize);
-    const rawWeek = readRecordBits(recordBuf, SEASON_WEEK_BIT, 5);
-    const week = normalizeSeasonWeek(rawWeek);
-    if (week !== 15) continue;
     const m = readMatchup(buf, recordsStart, recordSize, i);
     if (m.home.tableId !== TEAM_TABLE_ID || m.away.tableId !== TEAM_TABLE_ID) continue;
     const winnerBit = readRecordBits(recordBuf, WINNER_BIT, 1);
@@ -551,7 +564,7 @@ async function verifyGameFingerprint(savePath, schemaDirectory) {
   const warnings = [];
   const franchise = await Franchise.create(savePath, {
     schemaDirectory,
-    schemaOverride: { major: 472, minor: 0, gameYear: 27, path: `${schemaDirectory}/472_0.gz` },
+    schemaOverride: { major: 486, minor: 1, gameYear: 27, path: `${schemaDirectory}/486_1.gz` },
   });
 
   for (const [tableName, expected] of Object.entries(KNOWN_TABLE_FINGERPRINTS)) {
@@ -628,7 +641,7 @@ async function findConferenceChampionsByStandings(buf, recordsStart, recordSize,
   const Franchise = (await import('madden-franchise')).default;
   const franchise = await Franchise.create(savePath, {
     schemaDirectory,
-    schemaOverride: { major: 472, minor: 0, gameYear: 27, path: `${schemaDirectory}/472_0.gz` },
+    schemaOverride: { major: 486, minor: 1, gameYear: 27, path: `${schemaDirectory}/486_1.gz` },
   });
   const sgTable = resolveTable(franchise, TABLE_UNIQUE_IDS.SeasonGame, 'SeasonGame');
   await sgTable.readRecords();
@@ -724,15 +737,6 @@ async function findConferenceChampionsByStandings(buf, recordsStart, recordSize,
       confGameCount++;
     }
   }
-  for (const g of champGames) {
-    const h = rowToName(g.homeRow);
-    const a = rowToName(g.awayRow);
-    const winner = g.homeWon ? h : a;
-    const hConf = teamConference[h];
-    const aConf = teamConference[a];
-    const match = hConf === aConf ? 'MATCH' : 'MISMATCH';
-    console.log(`  ${h}(${hConf}) vs ${a}(${aConf}) -> winner: ${winner} [${match}]`);
-  }
   if (regularSeasonGames.length > 0) {
     const sample = regularSeasonGames[0];
     const sampleHome = rowToName(sample.homeRow);
@@ -816,7 +820,7 @@ async function findConferenceChampionsByStandings(buf, recordsStart, recordSize,
 async function checkUserCoachFlags(inputPath, schemaDirectory) {
   const franchise = await Franchise.create(inputPath, {
     schemaDirectory,
-    schemaOverride: { major: 472, minor: 0, gameYear: 27, path: path.join(schemaDirectory, '472_0.gz') },
+    schemaOverride: { major: 486, minor: 1, gameYear: 27, path: path.join(schemaDirectory, '486_1.gz') },
   });
 
   // NOTE: getAllTablesByName is only proven for SeasonGame/Team in this
@@ -883,7 +887,7 @@ async function protectUserCoach(inputPath, outputPath, schemaDirectory) {
   const log = [];
   const franchise = await Franchise.create(inputPath, {
     schemaDirectory,
-    schemaOverride: { major: 472, minor: 0, gameYear: 27, path: path.join(schemaDirectory, '472_0.gz') },
+    schemaOverride: { major: 486, minor: 1, gameYear: 27, path: path.join(schemaDirectory, '486_1.gz') },
   });
 
   // Same fix as checkUserCoachFlags - see note there.

@@ -1,7 +1,7 @@
 {
   "name": "cfb27-playoff-editor",
   "productName": "CFB27 Playoff Editor",
-  "version": "1.0.0",
+  "version": "3.0.0",
   "description": "Custom playoff bracket builder and BCS-style ranking tool for EA Sports College Football 27 dynasty saves.",
   "type": "module",
   "main": "main.cjs",

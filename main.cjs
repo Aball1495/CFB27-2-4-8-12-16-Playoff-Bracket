@@ -6,6 +6,7 @@
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const fsPromises = require('fs').promises;
 
 let mainWindow;
 
@@ -78,6 +79,260 @@ function writeCfpConversionPreference(pref) {
 // SESSION_FINDINGS.md - Stadium is a polymorphic/Enum reference type
 // this version of madden-franchise can't resolve), but a raw byte copy
 // sidesteps that entirely, proven directly in-game.
+// Generic version of the same proven technique: copy a team's own
+// permanent Stadium field into an arbitrary SeasonGame record's
+// Stadium field via raw byte copy (reference-type fields can't be
+// read/written reliably through the schema API - see
+// SESSION_FINDINGS.md). Returns true/false so callers can log
+// specifically what happened.
+// Corrects every player's most recent SeasonStats entry to match their
+// CURRENT roster team (Player.TeamIndex), treating roster as ground
+// truth - same principle already confirmed safe and working by the
+// separate Stats Tool's repair script. Runs automatically on every
+// Apply, so this never has to be run as a separate manual step.
+//
+// IMPORTANT CAVEAT: this treats the SYMPTOM, not a confirmed root
+// cause. Whether this tool's own writeMatchup()/repackSave() path
+// actually causes the underlying corruption, or whether it's a native/
+// pre-existing issue unrelated to this tool, is still an open,
+// untested question (see check-seasonstats-consistency.mjs for the
+// before/after test that would settle it). This correction is safe and
+// worth running regardless of that answer, but if it turns out our own
+// write path is the actual cause, the deeper fix would need to happen
+// in writeMatchup() itself, not just here.
+async function correctSeasonStatsToMatchRoster(outputPath, schemaDirectory, log) {
+  const Franchise = (await import('madden-franchise')).default;
+  const { TABLE_UNIQUE_IDS } = await import('./playoffEditorCore.mjs');
+  const franchise = await Franchise.create(outputPath, {
+    schemaDirectory,
+    schemaOverride: { major: 486, minor: 1, gameYear: 27, path: path.join(schemaDirectory, '486_1.gz') },
+  });
+
+  const teamMatches = franchise.tables.filter(t => t.header.uniqueId === TABLE_UNIQUE_IDS.Team);
+  const teamTable = teamMatches.reduce((a, r) => (r.header.recordCapacity > a.header.recordCapacity ? r : a));
+  await teamTable.readRecords();
+  const teamIndexToRow = new Map();
+  for (let i = 0; i < teamTable.records.length; i++) {
+    const rec = teamTable.records[i];
+    if (!rec) continue;
+    let idx;
+    try { idx = rec['TeamIndex']; } catch { continue; }
+    if (idx !== undefined) teamIndexToRow.set(idx, i);
+  }
+
+  // Cache field key -> index per _fieldsArray prototype to avoid repeated
+  // linear searches. With 16,500 players × 18 slot scans, the original
+  // linear find() was doing ~300k array traversals per Apply run.
+  const fieldIndexCache = new WeakMap();
+  function getFieldObj(rec, key) {
+    if (!rec._fieldsArray) return undefined;
+    let cache = fieldIndexCache.get(rec._fieldsArray);
+    if (!cache) {
+      cache = new Map();
+      for (let fi = 0; fi < rec._fieldsArray.length; fi++) {
+        cache.set(rec._fieldsArray[fi]._key, fi);
+      }
+      fieldIndexCache.set(rec._fieldsArray, cache);
+    }
+    const idx = cache.get(key);
+    return idx !== undefined ? rec._fieldsArray[idx] : undefined;
+  }
+
+  const playerTable = franchise.tables.find(t => t.header.name === 'Player');
+  await playerTable.readRecords();
+  const containerTable = franchise.tables.find(t => t.header.name === 'SeasonStats[]');
+  await containerTable.readRecords();
+  const tableById = new Map();
+  for (const t of franchise.tables) tableById.set(t.header.tableId, t);
+  const readTables = new Set();
+
+  // --- Pass 1: resolve every player's "last populated slot" reference,
+  // and count how many DIFFERENT players resolve to the exact same
+  // (tableId, rowNumber). A real season-stat leaf record belongs to
+  // exactly one player - if more than one player points at the same
+  // one, that's proof it's a shared default/template reference (e.g.
+  // inactive/practice-squad players who were never assigned their own
+  // real SeasonStats history), not genuine data. Confirmed via real
+  // save diagnostics: many unrelated players (different current teams,
+  // different rows) all resolved to the identical leaf address. Writing
+  // to a shared reference means whichever player gets processed last
+  // silently overwrites every other player's (and possibly a real
+  // player's) actual stat record - so these must never be corrected.
+  const candidates = []; // { playerRow, currentTeamIndex, leafTableId, leafRowNumber }
+  const refCounts = new Map(); // "tableId:rowNumber" -> count of distinct players
+
+  for (let i = 0; i < playerTable.records.length; i++) {
+    const rec = playerTable.records[i];
+    if (!rec) continue;
+    let currentTeamIndex;
+    try { currentTeamIndex = rec['TeamIndex']; } catch { continue; }
+    if (currentTeamIndex === undefined || currentTeamIndex === null) continue;
+
+    const seasonStatsField = getFieldObj(rec, 'SeasonStats');
+    const containerRef = seasonStatsField?.referenceData;
+    if (!containerRef || containerRef.rowNumber === undefined) continue;
+    const containerRec = containerTable.records[containerRef.rowNumber];
+    if (!containerRec) continue;
+
+    let lastPopulatedSlotRef = null;
+    for (let slot = 0; slot < 18; slot++) {
+      const slotField = getFieldObj(containerRec, `SeasonStats${slot}`);
+      const ref = slotField?.referenceData;
+      if (ref && (ref.tableId !== 0 || ref.rowNumber !== 0)) lastPopulatedSlotRef = ref;
+    }
+    if (!lastPopulatedSlotRef) continue;
+
+    const key = `${lastPopulatedSlotRef.tableId}:${lastPopulatedSlotRef.rowNumber}`;
+    refCounts.set(key, (refCounts.get(key) || 0) + 1);
+    candidates.push({ playerRow: i, currentTeamIndex, leafTableId: lastPopulatedSlotRef.tableId, leafRowNumber: lastPopulatedSlotRef.rowNumber, key });
+  }
+
+  // --- Pass 2: only correct players whose leaf reference is uniquely
+  // theirs (refCounts === 1). Shared references are skipped entirely -
+  // never written to, and not counted toward checkedCount, since they
+  // were never a legitimate per-player record to check in the first
+  // place.
+  let correctedCount = 0, checkedCount = 0, skippedSharedCount = 0;
+
+  for (const c of candidates) {
+    if (refCounts.get(c.key) > 1) { skippedSharedCount++; continue; }
+
+    const leafTable = tableById.get(c.leafTableId);
+    if (!leafTable) continue;
+    if (!readTables.has(leafTable)) { await leafTable.readRecords(); readTables.add(leafTable); }
+    const leafRec = leafTable.records[c.leafRowNumber];
+    if (!leafRec) continue;
+
+    let statTeamIndex;
+    try { statTeamIndex = leafRec['YEARBYYEARTEAMINDEX']; } catch { continue; }
+    checkedCount++;
+
+    if (statTeamIndex !== c.currentTeamIndex) {
+      const correctRow = teamIndexToRow.get(c.currentTeamIndex);
+      let correctName = null;
+      if (correctRow !== undefined) {
+        // Read the real in-game field directly off the Team record
+        // rather than going through the static rowToName lookup.
+        // rowToName pulls from team_lookup.json, which (a) may not
+        // match TEAM_PREFIX_NAME's actual format, and (b) has no
+        // protection against placeholder rows (UNKNOWN_PLACEHOLDER_30-34)
+        // - both would silently write a wrong/garbage string into a
+        // real save. This mirrors the fix apply_stat_repair.cjs already
+        // uses, and avoids the same "Jax State" vs "Jacksonville State"
+        // guesswork bug this project hit once before.
+        try { correctName = teamTable.records[correctRow]['TEAM_PREFIX_NAME']; } catch { correctName = null; }
+      }
+      try {
+        leafRec['YEARBYYEARTEAMINDEX'] = c.currentTeamIndex;
+        if (correctName) leafRec['TeamPrefixName'] = correctName;
+        correctedCount++;
+      } catch (err) {
+        log.push(`  WARNING - could not correct season-stat team for player record ${c.playerRow}: ${err.message}`);
+      }
+    }
+  }
+
+  if (correctedCount > 0) {
+    await franchise.save(outputPath);
+    log.push(`Season-stat team correction: fixed ${correctedCount} of ${checkedCount} checked player records (roster treated as ground truth). Skipped ${skippedSharedCount} record(s) pointing at a shared/template reference (not real per-player data - left untouched).`);
+  } else {
+    log.push(`Season-stat team correction: checked ${checkedCount} player records, no corrections needed. Skipped ${skippedSharedCount} record(s) pointing at a shared/template reference (not real per-player data - left untouched).`);
+  }
+}
+
+async function copyTeamStadiumIntoGame(franchise, teamTable, buf, recordsStart, recordSize, seasonRecordIndex, teamName, log, contextLabel) {
+  const { rowToName } = await import('./teamLookup.mjs');
+  function getFieldObj(rec, key) { return (rec._fieldsArray || []).find(f => f._key === key); }
+  function findTeamRow(name) {
+    for (let i = 0; i < teamTable.records.length; i++) {
+      let n;
+      try { n = rowToName(i); } catch { continue; }
+      if (n === name) return i;
+    }
+    return null;
+  }
+
+  const teamRow = findTeamRow(teamName);
+  if (teamRow === null) { log.push(`  ${contextLabel}: could not find ${teamName} in Team table - stadium not changed.`); return false; }
+  const teamRec = teamTable.records[teamRow];
+  const stadiumField = getFieldObj(teamRec, 'Stadium');
+  if (!stadiumField || !stadiumField.value || /^0+$/.test(stadiumField.value)) { log.push(`  ${contextLabel}: ${teamName}'s own Stadium field is empty - stadium not changed.`); return false; }
+  const stadiumOffsetInfo = teamRec._offsetTable?.find(f => f.name === 'Stadium');
+  if (!stadiumOffsetInfo) { log.push(`  ${contextLabel}: could not resolve Stadium's byte offset - stadium not changed.`); return false; }
+  const byteOffset = stadiumOffsetInfo.offset / 8;
+
+  const teamTableOffset = teamTable.offset + teamTable.header.headerSize;
+  const teamRecordSize = teamTable.header.record1Size;
+  const sourceOffset = teamTableOffset + teamRow * teamRecordSize + byteOffset;
+  const targetOffset = recordsStart + seasonRecordIndex * recordSize + 4; // confirmed: Stadium is byte 4, 4 bytes, on SeasonGame
+  buf.copy(buf, targetOffset, sourceOffset, sourceOffset + 4);
+  log.push(`  ${contextLabel}: now uses ${teamName}'s real home stadium.`);
+  return true;
+}
+
+// Standalone, reusable rank-sync - shared by the bracket-building flow
+// (seedAssignments = the bracket's actual seeds, 1 through bracketSize)
+// and the new standalone BCS Rankings app (seedAssignments = [], so
+// ranks 1-25 come straight from rankingOrder with no bracket carve-out
+// at all). Same explicit-NR-for-everyone-else logic either way - that's
+// what actually eliminates rank collisions, not just working around them.
+async function syncPollRanks(teamTable2, seedAssignments, rankingOrder, teamRow, rowToName, log) {
+  const POLLS = ['CFPPoll', 'CoachesPoll', 'MediaPoll'];
+  const rankedRows = new Set();
+
+  for (const { row, seed: s } of seedAssignments) {
+    const rec = teamTable2.records[row];
+    if (!rec) { log.push(`Rank sync - row ${row}: no record found, skipped.`); continue; }
+    const before = rec['CFPPoll_CurrentRank'];
+    for (const poll of POLLS) {
+      rec[`${poll}_LastWeeksRank`] = rec[`${poll}_CurrentRank`];
+      rec[`${poll}_CurrentRank`] = s;
+    }
+    rec['TeamRank'] = s;
+    rankedRows.add(row);
+    log.push(`Rank sync - ${rowToName(row)}: rank -> ${s} (was ${before}).`);
+  }
+
+  if (rankingOrder && rankingOrder.length) {
+    let nextRank = seedAssignments.length + 1;
+    for (const teamName of rankingOrder) {
+      if (nextRank > 25) break;
+      const row = teamRow(teamName);
+      if (row === null || row === undefined || rankedRows.has(row)) continue;
+      const rec = teamTable2.records[row];
+      if (!rec) continue;
+      for (const poll of POLLS) {
+        rec[`${poll}_LastWeeksRank`] = rec[`${poll}_CurrentRank`];
+        rec[`${poll}_CurrentRank`] = nextRank;
+      }
+      rec['TeamRank'] = nextRank;
+      rankedRows.add(row);
+      log.push(`Rank sync - ${teamName}: rank -> ${nextRank}${seedAssignments.length ? ' (next-best outside the bracket)' : ''}.`);
+      nextRank++;
+    }
+  }
+
+  let clearedCount = 0;
+  const UNRANKED_SENTINEL = 255; // confirmed via real in-game screenshot: 0 sorts to the TOP (treated as "best"), not bottom - it's just the schema's default/uninitialized value, not a real NR signal. 255 (the field's actual max) sorts last instead.
+  for (let row = 0; row < teamTable2.records.length; row++) {
+    if (rankedRows.has(row)) continue;
+    let name;
+    try { name = rowToName(row); } catch { continue; }
+    if (!name) continue; // not a real team row
+    const rec = teamTable2.records[row];
+    let alreadySentinel = true;
+    try { alreadySentinel = rec['CFPPoll_CurrentRank'] === UNRANKED_SENTINEL && rec['TeamRank'] === UNRANKED_SENTINEL; } catch { alreadySentinel = false; }
+    if (alreadySentinel) continue;
+    for (const poll of POLLS) {
+      rec[`${poll}_LastWeeksRank`] = rec[`${poll}_CurrentRank`];
+      rec[`${poll}_CurrentRank`] = UNRANKED_SENTINEL;
+    }
+    rec['TeamRank'] = UNRANKED_SENTINEL;
+    clearedCount++;
+  }
+  if (clearedCount > 0) log.push(`Rank sync - pushed ${clearedCount} other team(s) to the bottom (unranked), eliminating stale native ranks that could collide with the numbers above.`);
+}
+
 async function applyStadiumFix(outputPath, schemaDirectory, log) {
   const { openSave, repackSave, REGULAR_BOWLS, TABLE_UNIQUE_IDS } = await import('./playoffEditorCore.mjs');
   const Franchise = (await import('madden-franchise')).default;
@@ -85,7 +340,7 @@ async function applyStadiumFix(outputPath, schemaDirectory, log) {
 
   const franchise = await Franchise.create(outputPath, {
     schemaDirectory,
-    schemaOverride: { major: 472, minor: 0, gameYear: 27, path: path.join(schemaDirectory, '472_0.gz') },
+    schemaOverride: { major: 486, minor: 1, gameYear: 27, path: path.join(schemaDirectory, '486_1.gz') },
   });
   const seasonMatches = franchise.tables.filter(t => t.header.uniqueId === TABLE_UNIQUE_IDS.SeasonGame);
   const seasonTable = seasonMatches.reduce((a, r) => (r.header.recordCapacity > a.header.recordCapacity ? r : a));
@@ -100,19 +355,9 @@ async function applyStadiumFix(outputPath, schemaDirectory, log) {
     const ref = f?.referenceData;
     return ref ? rowToName(ref.rowNumber) : null;
   }
-  function findTeamRow(teamName) {
-    for (let i = 0; i < teamTable.records.length; i++) {
-      let name;
-      try { name = rowToName(i); } catch { continue; }
-      if (name === teamName) return i;
-    }
-    return null;
-  }
 
   const { unpackedFileContents, recordsStart, recordSize } = await openSave(outputPath, schemaDirectory);
   const buf = Buffer.from(unpackedFileContents);
-  const teamTableOffset = teamTable.offset + teamTable.header.headerSize;
-  const teamRecordSize = teamTable.header.record1Size;
 
   let fixedCount = 0;
   for (const bowl of CFP_REPURPOSED_BOWLS) {
@@ -126,25 +371,314 @@ async function applyStadiumFix(outputPath, schemaDirectory, log) {
     // specific repurposed-bowl records - see SESSION_FINDINGS.md.
     const hostTeam = teamNameOf(rec, 'HomeTeam');
     if (!hostTeam) { log.push(`  CFP presentation: could not determine host team for ${bowl.name} - stadium not changed.`); continue; }
-    const teamRow = findTeamRow(hostTeam);
-    if (teamRow === null) { log.push(`  CFP presentation: could not find ${hostTeam} in Team table - stadium not changed.`); continue; }
-    const teamRec = teamTable.records[teamRow];
-    const stadiumField = getFieldObj(teamRec, 'Stadium');
-    if (!stadiumField || !stadiumField.value || /^0+$/.test(stadiumField.value)) { log.push(`  CFP presentation: ${hostTeam}'s own Stadium field is empty - stadium not changed.`); continue; }
-    const stadiumOffsetInfo = teamRec._offsetTable?.find(f => f.name === 'Stadium');
-    if (!stadiumOffsetInfo) continue;
-    const byteOffset = stadiumOffsetInfo.offset / 8;
-    const sourceOffset = teamTableOffset + teamRow * teamRecordSize + byteOffset;
-    const targetOffset = recordsStart + seasonRecordIndex * recordSize + 4; // confirmed: Stadium is byte 4, 4 bytes, on SeasonGame
-    buf.copy(buf, targetOffset, sourceOffset, sourceOffset + 4);
-    fixedCount++;
-    log.push(`  CFP presentation: ${bowl.name} now uses ${hostTeam}'s real home stadium.`);
+    const ok = await copyTeamStadiumIntoGame(franchise, teamTable, buf, recordsStart, recordSize, seasonRecordIndex, hostTeam, log, `  CFP presentation (${bowl.name})`);
+    if (ok) fixedCount++;
   }
 
   if (fixedCount > 0) {
-    const originalRawBuf = fs.readFileSync(outputPath);
+    const originalRawBuf = await fsPromises.readFile(outputPath);
     const finalBuf = repackSave(originalRawBuf, buf);
-    fs.writeFileSync(outputPath, finalBuf);
+    await fsPromises.writeFile(outputPath, finalBuf);
+  }
+}
+
+// Fixed neutral-site "premier stadium" picker for the Championship
+// location (record 401, confirmed across every bracket size) and, for
+// 2-team/4-team formats, for leftover NY6 slots too. Each raw word is
+// a direct 32-bit Stadium-field reference into the game's own internal
+// asset catalog (NOT a row in any enumerable save-file table -
+// confirmed via extensive testing this session: decoding these values
+// never resolves to a real franchise.tables entry, meaning they're
+// baked into the game engine itself). Because of that, these values
+// are NOT save-specific - they should be valid across any save file,
+// not just the one they were captured from.
+//
+// Sourced two ways, both confirmed against real, direct in-game visual
+// checks (not inferred from bracket-screen labels, which were proven
+// UNRELIABLE for the native CFP quarterfinal/semifinal slots - same
+// raw word got a different real bowl name attached in different
+// seasons for those specific slots):
+//   1. PlayoffBowlsInfo table (tableId 4125, 6 fixed records, one per
+//      real NY6 bowl by NAME - immune to bracket-slot rotation by
+//      design) - the 6 NY6 sites below.
+//   2. A regular bowl's or conference championship's OWN Stadium field
+//      (offset +4) - both confirmed stable/consistent across multiple
+//      real seasons of testing, unlike the native CFP slots. Several
+//      of these were independently cross-validated more than once:
+//      Citrus/Pop-Tarts Bowl share an identical raw word (both are
+//      genuinely Camping World Stadium in real life), as do Gasparilla/
+//      Reliaquest (both Raymond James); Lucas Oil and Mercedes-Benz
+//      each matched exactly across two different real seasons.
+const PREMIER_STADIUMS = {
+  // --- NY6 bowls, from PlayoffBowlsInfo (tableId 4125) ---
+  'AT&T Stadium': 2154005968,          // Cotton Bowl (the game)
+  'Caesars Superdome': 2154005967,     // Sugar Bowl
+  'Hard Rock Stadium': 2154006023,     // Orange Bowl
+  'Mercedes-Benz Stadium': 2154006071, // Peach Bowl
+  'Rose Bowl': 2154122462,
+  'State Farm Stadium': 2154012135,    // Fiesta Bowl
+
+  // --- Confirmed via this dynasty's own conference championships ---
+  'MetLife Stadium': 2154122425,          // American Championship
+  'M&T Bank Stadium': 2154017734,         // ACC Championship
+  'Lincoln Financial Field': 2154122408,  // MAC Championship (current)
+  'Cotton Bowl': 2154005953,              // Sun Belt Championship - the ACTUAL historic stadium, distinct from AT&T Stadium above
+  'SoFi Stadium': 2154012133,             // Pac-12 Championship
+  'Lucas Oil Stadium': 2154122413,        // Big Ten Championship
+  'Ford Field': 2154122369,               // MAC Championship (season 1, before reassignment)
+
+  // --- Confirmed via regular bowl records ---
+  'Allegiant Stadium': 2154122467,       // Las Vegas Bowl
+  'Bank of America Stadium': 2154005939, // Duke's Mayo Bowl (also matches season-1 ACC Championship exactly)
+  'Camping World Stadium': 2154448661,   // Citrus Bowl / Pop-Tarts Bowl (identical raw word confirmed both ways)
+  'Nissan Stadium': 2154012096,          // Music City Bowl
+  'NRG Stadium': 2154012110,             // Texas Bowl
+  'Raymond James Stadium': 2154122451,   // Gasparilla Bowl / Reliaquest Bowl (identical raw word confirmed both ways)
+  'Everbank Stadium': 2154012161,        // Gator Bowl
+};
+
+// For 2-team and 4-team bracket formats, the actual games that play
+// as the real NY6 bowls are the week-18 regular bowl SeasonGame records
+// whose BowlGame rows get repurposed - matching NY6_REPURPOSED_BOWLS.
+// These are the records the user sets teams on, and where the venue
+// and branding get written.
+
+// Exact Name values from PlayoffBowlsInfo (tableId 4125) - the real,
+// stable, per-bowl table discovered this session. Only these 6 names
+// are valid choices for assignRealBowlToLeftoverSlot.
+const REAL_NY6_BOWL_NAMES = ['Rose Bowl', 'Sugar Bowl', 'Orange Bowl', 'Cotton Bowl', 'Fiesta Bowl', 'Peach Bowl'];
+
+// Plain scalar BowlGame fields safe to copy via ordinary schema-API
+// assignment - same confirmed-safe list as CFP_PRESENTATION_FIELDS,
+// plus Name (also already proven safe elsewhere in this file).
+// Deliberately excludes Stadium and Trophy - both are reference-type
+// fields (same raw bit-string representation problem Stadium had
+// everywhere else this session), not plain scalars, so they need the
+// raw-buffer treatment instead of rec[field]=value.
+const NY6_BRANDING_FIELDS = ['Name', 'AssetName', 'BowlLogoId', 'PresentationId',
+  'BOWL_PRIMARY_COLOR_R', 'BOWL_PRIMARY_COLOR_G', 'BOWL_PRIMARY_COLOR_B',
+  'BOWL_SECONDARY_COLOR_R', 'BOWL_SECONDARY_COLOR_G', 'BOWL_SECONDARY_COLOR_B',
+  'BOWL_TERTIARY_COLOR_R', 'BOWL_TERTIARY_COLOR_G', 'BOWL_TERTIARY_COLOR_B'];
+
+/**
+ * Assigns real NY6 bowl identities (location AND branding) to a batch
+ * of leftover native slots that aren't real bracket games this season.
+ * assignments is an array of { record, bowlName }.
+ *
+ * Follows the same proven two-phase sequencing already used by
+ * applyCfpConversion (applyStadiumFix then writeBowlGamePresentation) -
+ * raw-buffer writes and schema-API writes are NOT mixed on one shared
+ * franchise instance; phase 2 re-opens fresh from whatever phase 1 just
+ * wrote to outputPath. Safe to re-run repeatedly - each run just
+ * overwrites the same fields with the same values, which matters since
+ * the game may regenerate some of these fields as the season
+ * progresses through week 2/3, so this may need re-applying closer to
+ * when each game is actually played.
+ */
+// Week-18 regular bowl rows that get repurposed as real NY6 bowls for
+// 2-team and 4-team bracket formats. Exactly mirrors CFP_REPURPOSED_BOWLS
+// but for the NY6 (quarterfinal/semifinal) slots instead of the First
+// Round slots. Original values captured from DYNASTY-PLAYOFFTEST for
+// the revert path - same pattern as CFP_REPURPOSED_BOWLS.
+//
+// Slot assignment (matches NY6_LEFTOVER_SLOTS_BY_SIZE):
+//   4-team: slots 928-931 use the first 4 entries (rows 6, 19, 23, 26)
+//   2-team: slots 928-933 use all 6 entries (rows 6, 19, 23, 26, 40, 42)
+const NY6_REPURPOSED_BOWLS = [
+  { seasonGame: 399, row: 6,
+    original: { Name: 'Citrus Bowl', AssetName: 'Citrus_Bowl', BowlLogoId: 10, PresentationId: 35,
+      BOWL_PRIMARY_COLOR_R: 206, BOWL_PRIMARY_COLOR_G: 14, BOWL_PRIMARY_COLOR_B: 45,
+      BOWL_SECONDARY_COLOR_R: 255, BOWL_SECONDARY_COLOR_G: 81, BOWL_SECONDARY_COLOR_B: 0,
+      BOWL_TERTIARY_COLOR_R: 245, BOWL_TERTIARY_COLOR_G: 168, BOWL_TERTIARY_COLOR_B: 0,
+      IsPlayoffBowl: false, PlayoffBracketSlot: 0 } },
+  { seasonGame: 392, row: 19,
+    original: { Name: "Duke's Mayo Bowl", AssetName: 'Duke_s_Mayo_Bowl', BowlLogoId: 3, PresentationId: 28,
+      BOWL_PRIMARY_COLOR_R: 255, BOWL_PRIMARY_COLOR_G: 198, BOWL_PRIMARY_COLOR_B: 41,
+      BOWL_SECONDARY_COLOR_R: 234, BOWL_SECONDARY_COLOR_G: 29, BOWL_SECONDARY_COLOR_B: 37,
+      BOWL_TERTIARY_COLOR_R: 18, BOWL_TERTIARY_COLOR_G: 25, BOWL_TERTIARY_COLOR_B: 33,
+      IsPlayoffBowl: false, PlayoffBracketSlot: 0 } },
+  { seasonGame: 385, row: 23,
+    original: { Name: 'First Responder Bowl', AssetName: 'First_Responder_Bowl', BowlLogoId: 26, PresentationId: 20,
+      BOWL_PRIMARY_COLOR_R: 244, BOWL_PRIMARY_COLOR_G: 123, BOWL_PRIMARY_COLOR_B: 61,
+      BOWL_SECONDARY_COLOR_R: 28, BOWL_SECONDARY_COLOR_G: 77, BOWL_SECONDARY_COLOR_B: 161,
+      BOWL_TERTIARY_COLOR_R: 213, BOWL_TERTIARY_COLOR_G: 28, BOWL_TERTIARY_COLOR_B: 41,
+      IsPlayoffBowl: false, PlayoffBracketSlot: 0 } },
+  { seasonGame: 395, row: 26,
+    original: { Name: 'Gator Bowl', AssetName: 'Gator_Bowl', BowlLogoId: 6, PresentationId: 31,
+      BOWL_PRIMARY_COLOR_R: 207, BOWL_PRIMARY_COLOR_G: 51, BOWL_PRIMARY_COLOR_B: 56,
+      BOWL_SECONDARY_COLOR_R: 127, BOWL_SECONDARY_COLOR_G: 39, BOWL_SECONDARY_COLOR_B: 41,
+      BOWL_TERTIARY_COLOR_R: 84, BOWL_TERTIARY_COLOR_G: 86, BOWL_TERTIARY_COLOR_B: 91,
+      IsPlayoffBowl: false, PlayoffBracketSlot: 0 } },
+  { seasonGame: 398, row: 40,
+    original: { Name: 'Reliaquest Bowl', AssetName: 'Reliaquest_Bowl', BowlLogoId: 9, PresentationId: 34,
+      BOWL_PRIMARY_COLOR_R: 19, BOWL_PRIMARY_COLOR_G: 30, BOWL_PRIMARY_COLOR_B: 41,
+      BOWL_SECONDARY_COLOR_R: 4, BOWL_SECONDARY_COLOR_G: 138, BOWL_SECONDARY_COLOR_B: 151,
+      BOWL_TERTIARY_COLOR_R: 2, BOWL_TERTIARY_COLOR_G: 96, BOWL_TERTIARY_COLOR_B: 115,
+      IsPlayoffBowl: false, PlayoffBracketSlot: 0 } },
+  { seasonGame: 396, row: 42,
+    original: { Name: 'Sun Bowl', AssetName: 'Sun_Bowl', BowlLogoId: 7, PresentationId: 32,
+      BOWL_PRIMARY_COLOR_R: 14, BOWL_PRIMARY_COLOR_G: 30, BOWL_PRIMARY_COLOR_B: 99,
+      BOWL_SECONDARY_COLOR_R: 0, BOWL_SECONDARY_COLOR_G: 108, BOWL_SECONDARY_COLOR_B: 183,
+      BOWL_TERTIARY_COLOR_R: 242, BOWL_TERTIARY_COLOR_G: 106, BOWL_TERTIARY_COLOR_B: 48,
+      IsPlayoffBowl: false, PlayoffBracketSlot: 0 } },
+];
+
+const NY6_LEFTOVER_SLOTS_BY_SIZE = {
+  2: [928, 929, 930, 931, 932, 933],
+  4: [928, 929, 930, 931],
+};
+
+async function assignRealBowlsToLeftoverSlots(outputPath, schemaDirectory, assignments, log) {
+  const { openSave, repackSave } = await import('./playoffEditorCore.mjs');
+  const Franchise = (await import('madden-franchise')).default;
+
+  // Exact same pattern as writeBowlGamePresentation / applyCfpConversion:
+  //   Phase 1 (applyStadiumFix equivalent): raw-buffer Stadium writes
+  //     on the SeasonGame records being repurposed.
+  //   Phase 2 (writeBowlGamePresentation equivalent): schema-API branding
+  //     writes on the week-18 regular bowl BowlGame rows, re-opened fresh.
+  //
+  // The week-18 regular bowl's own SeasonGame record stays exactly where
+  // it is with its own teams/schedule untouched. We just overwrite:
+  //   - Its BowlGame row's branding (Name/AssetName/logo/colors) with the
+  //     real NY6 bowl's identity from PlayoffBowlsInfo.
+  //   - The NY6 leftover slot's SeasonGame.Stadium with the real venue.
+  //   - The NY6 leftover slot's teams (handled by writeGame in run-edit,
+  //     before this function runs).
+  //
+  // The repurposed week-18 bowl's own SeasonGame record now shares its
+  // BowlGame row with the NY6 slot - both games show the same real bowl
+  // branding, which is correct: the week-18 game IS the real bowl game
+  // now, just played at the real NY6 venue with the real NY6 teams.
+
+  // Phase 1: raw-buffer Stadium writes on the NY6 leftover slots.
+  {
+    const franchise = await Franchise.create(outputPath, {
+      schemaDirectory,
+      schemaOverride: { major: 486, minor: 1, gameYear: 27, path: path.join(schemaDirectory, '486_1.gz') },
+    });
+    const playoffBowlsInfoTable = franchise.tables.find(t => t.header.tableId === 4125 && t.header.name === 'PlayoffBowlsInfo');
+    if (!playoffBowlsInfoTable) { log.push('  WARNING - could not find PlayoffBowlsInfo table.'); return; }
+    await playoffBowlsInfoTable.readRecords();
+
+    const { unpackedFileContents, recordsStart, recordSize } = await openSave(outputPath, schemaDirectory);
+    const buf = Buffer.from(unpackedFileContents);
+    let anyWritten = false;
+
+    for (const { record, bowlName } of assignments) {
+      if (!REAL_NY6_BOWL_NAMES.includes(bowlName)) continue;
+      const sourceRec = playoffBowlsInfoTable.records.find(r => { try { return r?.['Name'] === bowlName; } catch { return false; } });
+      if (!sourceRec) { log.push(`  WARNING - "${bowlName}" not found in PlayoffBowlsInfo.`); continue; }
+      let stadiumStr; try { stadiumStr = sourceRec['Stadium']; } catch { stadiumStr = null; }
+      if (!stadiumStr) { log.push(`  WARNING - "${bowlName}" has no Stadium value.`); continue; }
+      buf.writeUInt32BE(parseInt(stadiumStr, 2) >>> 0, recordsStart + record * recordSize + 4);
+      anyWritten = true;
+    }
+
+    if (anyWritten) {
+      const originalRawBuf = await fsPromises.readFile(outputPath);
+      await fsPromises.writeFile(outputPath, repackSave(originalRawBuf, buf));
+    }
+  }
+
+  // Phase 2: schema-API branding writes on the week-18 bowl rows,
+  // re-opened fresh from whatever phase 1 just wrote.
+  {
+    const franchise = await Franchise.create(outputPath, {
+      schemaDirectory,
+      schemaOverride: { major: 486, minor: 1, gameYear: 27, path: path.join(schemaDirectory, '486_1.gz') },
+    });
+    const playoffBowlsInfoTable = franchise.tables.find(t => t.header.tableId === 4125 && t.header.name === 'PlayoffBowlsInfo');
+    await playoffBowlsInfoTable.readRecords();
+
+    const matches = franchise.tables.filter(t => t.header.uniqueId === BOWL_GAME_UNIQUE_ID);
+    const bowlTable = matches.reduce((a, r) => (r.header.recordCapacity > a.header.recordCapacity ? r : a));
+    await bowlTable.readRecords();
+
+    for (const { record, bowlName } of assignments) {
+      if (!REAL_NY6_BOWL_NAMES.includes(bowlName)) {
+        log.push(`  WARNING - "${bowlName}" is not a recognized NY6 bowl name, skipping record ${record}.`);
+        continue;
+      }
+      // Find which NY6_REPURPOSED_BOWLS entry maps to this SeasonGame record.
+      const repurposed = NY6_REPURPOSED_BOWLS.find(b => b.seasonGame === record);
+      if (!repurposed) {
+        log.push(`  WARNING - no NY6_REPURPOSED_BOWLS entry for slot ${record}, skipping.`);
+        continue;
+      }
+      const sourceRec = playoffBowlsInfoTable.records.find(r => { try { return r?.['Name'] === bowlName; } catch { return false; } });
+      if (!sourceRec) { log.push(`  WARNING - "${bowlName}" not found in PlayoffBowlsInfo.`); continue; }
+
+      const targetRec = bowlTable.records[repurposed.row];
+      if (!targetRec) { log.push(`  WARNING - BowlGame row ${repurposed.row} is null.`); continue; }
+
+      for (const field of NY6_BRANDING_FIELDS) {
+        try { targetRec[field] = sourceRec[field]; } catch { /* skip */ }
+      }
+      try { targetRec['IsPlayoffBowl'] = true; } catch { /* skip */ }
+      try { targetRec['PlayoffBracketSlot'] = 0; } catch { /* skip */ }
+
+      log.push(`  Slot ${record} (${repurposed.seasonGame} ${repurposed.original.Name} row ${repurposed.row}): now presents as ${bowlName}.`);
+    }
+
+    await franchise.save(outputPath);
+  }
+}
+
+/**
+ * Writes a raw Stadium-field word directly into a target SeasonGame
+ * record, for the fixed PREMIER_STADIUMS list - no team lookup needed,
+ * unlike copyTeamStadiumIntoGame. buf must already be the unpacked
+ * save buffer (same convention as every other raw-buffer write in this
+ * file).
+ */
+function writeFixedStadiumIntoGame(buf, recordsStart, recordSize, seasonRecordIndex, rawWord, log, contextLabel) {
+  const targetOffset = recordsStart + seasonRecordIndex * recordSize + 4; // confirmed: Stadium is byte 4, 4 bytes, on SeasonGame
+  buf.writeUInt32BE(rawWord >>> 0, targetOffset);
+  log.push(`  ${contextLabel}: now uses this fixed neutral-site stadium.`);
+  return true;
+}
+
+/**
+ * choice can be EITHER a team name (borrows that team's own home
+ * stadium, original behavior) OR a name from PREMIER_STADIUMS (writes
+ * the fixed raw word directly, no team lookup needed). Checked in that
+ * order - a PREMIER_STADIUMS match always takes priority, since a real
+ * team could theoretically share a name string with a stadium entry
+ * (not expected in practice, but no reason not to be explicit).
+ */
+async function applyChampionshipStadiumOverride(outputPath, schemaDirectory, choice, log) {
+  const { openSave, repackSave, TABLE_UNIQUE_IDS } = await import('./playoffEditorCore.mjs');
+  const Franchise = (await import('madden-franchise')).default;
+
+  const franchise = await Franchise.create(outputPath, {
+    schemaDirectory,
+    schemaOverride: { major: 486, minor: 1, gameYear: 27, path: path.join(schemaDirectory, '486_1.gz') },
+  });
+
+  const { unpackedFileContents, recordsStart, recordSize } = await openSave(outputPath, schemaDirectory);
+  const buf = Buffer.from(unpackedFileContents);
+  const CHAMPIONSHIP_RECORD = 401;
+
+  let ok = false;
+  const fixedRaw = PREMIER_STADIUMS[choice];
+  if (fixedRaw !== undefined) {
+    if (fixedRaw === null) {
+      log.push(`  Championship location: "${choice}" is not yet confirmed for this build - no change made. See PREMIER_STADIUMS in main.cjs.`);
+      return;
+    }
+    ok = writeFixedStadiumIntoGame(buf, recordsStart, recordSize, CHAMPIONSHIP_RECORD, fixedRaw, log, 'Championship location');
+  } else {
+    const teamMatches = franchise.tables.filter(t => t.header.uniqueId === TABLE_UNIQUE_IDS.Team);
+    const teamTable = teamMatches.reduce((a, r) => (r.header.recordCapacity > a.header.recordCapacity ? r : a));
+    await teamTable.readRecords();
+    ok = await copyTeamStadiumIntoGame(franchise, teamTable, buf, recordsStart, recordSize, CHAMPIONSHIP_RECORD, choice, log, 'Championship location');
+  }
+
+  if (ok) {
+    const originalRawBuf = await fsPromises.readFile(outputPath);
+    const finalBuf = repackSave(originalRawBuf, buf);
+    await fsPromises.writeFile(outputPath, finalBuf);
   }
 }
 
@@ -157,7 +691,7 @@ async function writeBowlGamePresentation(outputPath, schemaDirectory, mode, log)
   const Franchise = (await import('madden-franchise')).default;
   const franchise = await Franchise.create(outputPath, {
     schemaDirectory,
-    schemaOverride: { major: 472, minor: 0, gameYear: 27, path: path.join(schemaDirectory, '472_0.gz') },
+    schemaOverride: { major: 486, minor: 1, gameYear: 27, path: path.join(schemaDirectory, '486_1.gz') },
   });
   const matches = franchise.tables.filter(t => t.header.uniqueId === BOWL_GAME_UNIQUE_ID);
   const bowlTable = matches.reduce((a, r) => (r.header.recordCapacity > a.header.recordCapacity ? r : a));
@@ -184,70 +718,105 @@ async function writeBowlGamePresentation(outputPath, schemaDirectory, mode, log)
   await franchise.save(outputPath);
 }
 
-async function applyCfpConversion(outputPath, schemaDirectory, log) {
-  await applyStadiumFix(outputPath, schemaDirectory, log);
-  await writeBowlGamePresentation(outputPath, schemaDirectory, 'convert', log);
-}
-async function revertCfpConversion(outputPath, schemaDirectory, log) {
-  await writeBowlGamePresentation(outputPath, schemaDirectory, 'revert', log);
-}
-
-// Fixes a PERSISTENT, unrelated issue - some external tool/mod (not
-// ours) mass-relabeled 13 real, ordinary bowl games to "CFP First
-// Round" text at some point in this dynasty's history, and since the
-// underlying corruption is baked into this save lineage rather than a
-// one-time event, it keeps resurfacing on fresh saves rather than
-// staying fixed. Runs on EVERY Apply, regardless of bracket size -
-// unlike the 4 repurposed bowls (5/18/25/37), which follow their own
-// separate convert/revert logic tied to the 16-team format specifically.
-// Confirmed via dump-all-bowlgame-flags.mjs: exactly these 13 rows,
-// consistently. The IsPlayoffBowl safety check (same as the standalone
-// fix-bowl-names-v2.mjs) means this can never accidentally revert an
-// actual playoff game even if the row numbers ever shifted.
-const UNRELATED_MISLABELED_BOWLS = {
-  6: 'Citrus Bowl',
-  19: "Duke's Mayo Bowl",
-  21: 'Famous Idaho Potato Bowl',
-  23: 'First Responder Bowl',
-  24: 'Frisco Bowl',
-  26: 'Gator Bowl',
-  30: 'Independence Bowl',
-  34: 'Music City Bowl',
-  35: 'Myrtle Beach Bowl',
-  36: 'New Mexico Bowl',
-  40: 'Reliaquest Bowl',
-  42: 'Sun Bowl',
-  44: 'Xbox Bowl',
-};
-async function restoreUnrelatedMislabeledBowls(outputPath, schemaDirectory, log) {
+async function applyCfpConversionMerged(outputPath, schemaDirectory, log) {
+  // Merged version of applyCfpConversion: does both applyStadiumFix and
+  // writeBowlGamePresentation in a single Franchise.create + openSave,
+  // instead of two sequential opens. Eliminates one full save parse per
+  // 16-team Apply run.
+  const { openSave, repackSave, REGULAR_BOWLS, TABLE_UNIQUE_IDS } = await import('./playoffEditorCore.mjs');
   const Franchise = (await import('madden-franchise')).default;
+  const { rowToName } = await import('./teamLookup.mjs');
+
   const franchise = await Franchise.create(outputPath, {
     schemaDirectory,
-    schemaOverride: { major: 472, minor: 0, gameYear: 27, path: path.join(schemaDirectory, '472_0.gz') },
+    schemaOverride: { major: 486, minor: 1, gameYear: 27, path: path.join(schemaDirectory, '486_1.gz') },
   });
+  const seasonMatches = franchise.tables.filter(t => t.header.uniqueId === TABLE_UNIQUE_IDS.SeasonGame);
+  const seasonTable = seasonMatches.reduce((a, r) => (r.header.recordCapacity > a.header.recordCapacity ? r : a));
+  await seasonTable.readRecords();
+  const teamMatches = franchise.tables.filter(t => t.header.uniqueId === TABLE_UNIQUE_IDS.Team);
+  const teamTable = teamMatches.reduce((a, r) => (r.header.recordCapacity > a.header.recordCapacity ? r : a));
+  await teamTable.readRecords();
+
   const matches = franchise.tables.filter(t => t.header.uniqueId === BOWL_GAME_UNIQUE_ID);
   const bowlTable = matches.reduce((a, r) => (r.header.recordCapacity > a.header.recordCapacity ? r : a));
   await bowlTable.readRecords();
 
+  function getFieldObj(rec, key) { return (rec._fieldsArray || []).find(f => f._key === key); }
+  function teamNameOf(rec, key) {
+    const f = getFieldObj(rec, key);
+    const ref = f?.referenceData;
+    return ref ? rowToName(ref.rowNumber) : null;
+  }
+
+  const { unpackedFileContents, recordsStart, recordSize } = await openSave(outputPath, schemaDirectory);
+  const buf = Buffer.from(unpackedFileContents);
+
+  // Phase 1: stadium raw-buffer writes (same as applyStadiumFix)
   let fixedCount = 0;
-  for (const [indexStr, correctName] of Object.entries(UNRELATED_MISLABELED_BOWLS)) {
-    const index = parseInt(indexStr, 10);
-    const rec = bowlTable.records[index];
+  for (const bowl of CFP_REPURPOSED_BOWLS) {
+    const bowlInfo = REGULAR_BOWLS.find(b => b.name === bowl.name);
+    const seasonRecordIndex = bowlInfo?.record;
+    if (seasonRecordIndex === undefined) { log.push(`  CFP presentation (${bowl.name}): could not resolve SeasonGame record - stadium not changed.`); continue; }
+    const rec = seasonTable.records[seasonRecordIndex];
     if (!rec) continue;
-    let isPlayoff = false;
-    try { isPlayoff = rec['IsPlayoffBowl'] === true; } catch { /* ignore */ }
-    if (isPlayoff) continue; // never touch a real playoff-flagged row
-    let currentName = null;
-    try { currentName = rec['Name']; } catch { /* ignore */ }
-    if (currentName === correctName) continue; // already correct, nothing to do
-    rec['Name'] = correctName;
-    fixedCount++;
+    const hostTeam = teamNameOf(rec, 'HomeTeam');
+    if (!hostTeam) { log.push(`  CFP presentation (${bowl.name}): could not determine host team - stadium not changed.`); continue; }
+    const ok = await copyTeamStadiumIntoGame(franchise, teamTable, buf, recordsStart, recordSize, seasonRecordIndex, hostTeam, log, `  CFP presentation (${bowl.name})`);
+    if (ok) fixedCount++;
   }
   if (fixedCount > 0) {
-    await franchise.save(outputPath);
-    log.push(`  Restored ${fixedCount} unrelated bowl name(s) that had been mislabeled "CFP First Round" (not caused by this tool - see README).`);
+    const originalRawBuf = await fsPromises.readFile(outputPath);
+    await fsPromises.writeFile(outputPath, repackSave(originalRawBuf, buf));
+  }
+
+  // Phase 2: BowlGame branding writes (same as writeBowlGamePresentation 'convert')
+  for (const bowl of CFP_REPURPOSED_BOWLS) {
+    const rec = bowlTable.records[bowl.row];
+    if (!rec) continue;
+    const nativeRec = bowlTable.records[bowl.nativeRow];
+    rec['Name'] = 'CFP First Round';
+    rec['IsPlayoffBowl'] = true;
+    rec['PlayoffBracketSlot'] = bowl.slot;
+    for (const field of CFP_PRESENTATION_FIELDS) {
+      try { rec[field] = nativeRec[field]; } catch { /* skip field this schema doesn't have */ }
+    }
+    log.push(`  CFP presentation: ${bowl.name} now presents as a true CFP First Round game (logo, jersey patch, field markings).`);
+  }
+  await franchise.save(outputPath);
+}
+
+async function applyCfpConversion(outputPath, schemaDirectory, log) {
+  return applyCfpConversionMerged(outputPath, schemaDirectory, log);
+}
+
+async function revertCfpConversion(outputPath, schemaDirectory, log) {
+  await writeBowlGamePresentation(outputPath, schemaDirectory, 'revert', log);
+}
+
+/**
+ * Backs up inputPath to <savesDir>/Playoff/<filename> (creating the
+ * Playoff folder if needed), then returns the inputPath itself as the
+ * output path so the caller can overwrite the original in place.
+ * Returns null if the backup fails, so the caller can abort rather
+ * than silently overwriting without a backup.
+ */
+async function backupToPlayoffFolder(inputPath, log) {
+  try {
+    const savesDir = path.dirname(inputPath);
+    const playoffDir = path.join(savesDir, 'Playoff');
+    await fsPromises.mkdir(playoffDir, { recursive: true });
+    const filename = path.basename(inputPath);
+    const backupPath = path.join(playoffDir, filename);
+    await fsPromises.copyFile(inputPath, backupPath);
+    log.push(`Backed up original save to ${backupPath}`);
+    return inputPath; // overwrite original
+  } catch (err) {
+    log.push(`WARNING - could not create Playoff folder backup: ${err.message}. Aborting to protect the original save.`);
+    return null;
   }
 }
+
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -299,6 +868,30 @@ ipcMain.handle('protect-user-coach', async (event, { inputPath, outputPath }) =>
   }
 });
 
+// Standalone season-stat correction, decoupled from the bracket-building
+// flow entirely. correctSeasonStatsToMatchRoster normally only runs as
+// a side effect of a full Apply (run-edit), which requires picking a
+// valid bracket size and rebuilds bowls/ranks/CFP presentation - all
+// unnecessary, and potentially confusing, once the season is actually
+// over and no more bracket work is needed. This lets a user run just
+// the season-stat check/fix on its own, any time - most usefully right
+// after the National Championship, once the transfer portal and
+// recruiting have finished moving players to new teams.
+ipcMain.handle('fix-season-stats-only', async (event, { inputPath, outputPath }) => {
+  const log = [];
+  try {
+    if (path.resolve(inputPath) !== path.resolve(outputPath)) {
+      await fsPromises.copyFile(inputPath, outputPath);
+    }
+    log.push(`Loaded ${inputPath} - checking player season-stat team references against current rosters (no bracket changes):`);
+    await correctSeasonStatsToMatchRoster(outputPath, path.join(__dirname, 'schemas'), log);
+    return { success: true, log };
+  } catch (err) {
+    log.push(`ERROR: ${err.message}`);
+    return { success: false, log, error: err.message };
+  }
+});
+
 ipcMain.handle('check-user-coach', async (event, { inputPath }) => {
   try {
     const { checkUserCoachFlags } = await import('./playoffEditorCore.mjs');
@@ -331,6 +924,78 @@ ipcMain.handle('get-regular-bowls', async () => {
   return REGULAR_BOWLS.map(b => b.name);
 });
 
+ipcMain.handle('get-premier-stadiums', async () => {
+  // Only expose names with a confirmed (non-null) raw word - the
+  // pending/TODO ones stay hidden from the picker until they're
+  // actually verified against a real save, same standard as everything
+  // else in this feature.
+  return Object.entries(PREMIER_STADIUMS)
+    .filter(([, raw]) => raw !== null)
+    .map(([name]) => name)
+    .sort();
+});
+
+ipcMain.handle('get-ny6-leftover-slots', async (event, { bracketSize, inputPath }) => {
+  const records = NY6_LEFTOVER_SLOTS_BY_SIZE[bracketSize] || [];
+  if (!records.length) return { slots: [], bowlNames: REAL_NY6_BOWL_NAMES };
+
+  if (!inputPath) {
+    return { slots: records.map((r, i) => ({ record: r, bowlLabel: `Game ${i + 1} of ${records.length}`, home: null, away: null })), bowlNames: REAL_NY6_BOWL_NAMES };
+  }
+
+  try {
+    const { openSave, readMatchup, TEAM_TABLE_ID } = await import('./playoffEditorCore.mjs');
+    const { rowToName } = await import('./teamLookup.mjs');
+    const Franchise = (await import('madden-franchise')).default;
+    const schemaDirectory = path.join(__dirname, 'schemas');
+
+    const { unpackedFileContents, recordsStart, recordSize } = await openSave(inputPath, schemaDirectory);
+    const buf = Buffer.from(unpackedFileContents);
+
+    // Build Stadium raw word -> bowl name from PlayoffBowlsInfo.
+    // This is the most reliable source - PlayoffBowlsInfo is never
+    // touched by any of our writes, and we confirmed its Stadium values
+    // match the SeasonGame Stadium field values for each real bowl.
+    const franchise = await Franchise.create(inputPath, {
+      schemaDirectory,
+      schemaOverride: { major: 486, minor: 1, gameYear: 27, path: path.join(schemaDirectory, '486_1.gz') },
+    });
+    const playoffBowlsInfoTable = franchise.tables.find(t => t.header.tableId === 4125 && t.header.name === 'PlayoffBowlsInfo');
+    await playoffBowlsInfoTable.readRecords();
+    const stadiumWordToBowlName = new Map();
+    for (const pbRec of playoffBowlsInfoTable.records) {
+      if (!pbRec) continue;
+      let stadiumStr, name;
+      try { stadiumStr = pbRec['Stadium']; name = pbRec['Name']; } catch { continue; }
+      if (stadiumStr && name) {
+        const word = parseInt(stadiumStr, 2);
+        stadiumWordToBowlName.set(word, name);
+      }
+    }
+
+    const seasonGameTable = franchise.tables.find(t => t.header.name === 'SeasonGame' && t.header.recordCapacity === 983);
+    await seasonGameTable.readRecords();
+
+    const slotsWithTeams = records.map(r => {
+      const m = readMatchup(buf, recordsStart, recordSize, r);
+      const homeIsFbs = m.home.tableId === TEAM_TABLE_ID;
+      const awayIsFbs = m.away.tableId === TEAM_TABLE_ID;
+      // Read Stadium raw word from SeasonGame at the confirmed offset (+4).
+      const stadiumWord = buf.readUInt32BE(recordsStart + r * recordSize + 4);
+      const bowlLabel = stadiumWordToBowlName.get(stadiumWord) || `Slot ${r}`;
+      return {
+        record: r,
+        bowlLabel,
+        home: homeIsFbs ? rowToName(m.home.row) : null,
+        away: awayIsFbs ? rowToName(m.away.row) : null,
+      };
+    });
+    return { slots: slotsWithTeams, bowlNames: REAL_NY6_BOWL_NAMES };
+  } catch (err) {
+    return { slots: records.map((r, i) => ({ record: r, bowlLabel: `Game ${i + 1} of ${records.length}`, home: null, away: null })), bowlNames: REAL_NY6_BOWL_NAMES };
+  }
+});
+
 ipcMain.handle('get-team-conferences', async () => {
   const { loadTeamConference } = await import('./teamConference.mjs');
   const { TEAM_CONFERENCE, ALL_CONFERENCES } = loadTeamConference();
@@ -344,14 +1009,26 @@ ipcMain.handle('get-team-colors', async () => {
 
 ipcMain.handle('compute-bcs-rankings', async (event, { inputPath, options }) => {
   try {
-    const { openSave, findConferenceChampionsByStandings } = await import('./playoffEditorCore.mjs');
+    const { openSave, findConferenceChampionsByStandings, resolveTable, TABLE_UNIQUE_IDS: TUI } = await import('./playoffEditorCore.mjs');
     const { computeFullBCSRankings } = await import('./bcsRankingFull.mjs');
     const { loadTeamConference } = await import('./teamConference.mjs');
     const { TEAM_CONFERENCE } = loadTeamConference();
+    const Franchise = (await import('madden-franchise')).default;
 
     const { unpackedFileContents, recordsStart, recordSize, recordCount } =
       await openSave(inputPath, path.join(__dirname, 'schemas'));
     const buf = Buffer.from(unpackedFileContents);
+
+    // Schema-aware SeasonGame table, needed for the SeasonWeekType-based
+    // filter in computeGameLogs - CONFIRMED via real save testing that
+    // the raw-buffer week reading disagreed with this schema-safe
+    // reading on 100% of games, so this can't be derived from buf alone.
+    const franchiseForWeekType = await Franchise.create(inputPath, {
+      schemaDirectory: path.join(__dirname, 'schemas'),
+      schemaOverride: { major: 486, minor: 1, gameYear: 27, path: path.join(__dirname, 'schemas', '486_1.gz') },
+    });
+    const seasonGameTable = resolveTable(franchiseForWeekType, TUI.SeasonGame, 'SeasonGame');
+    await seasonGameTable.readRecords();
 
     const { confChampions: champResults, unresolved } = await findConferenceChampionsByStandings(
       buf, recordsStart, recordSize, recordCount, TEAM_CONFERENCE, inputPath, path.join(__dirname, 'schemas')
@@ -362,10 +1039,101 @@ ipcMain.handle('compute-bcs-rankings', async (event, { inputPath, options }) => 
     }
     const unmatchedConfGames = unresolved.map(u => ({ home: u.conf, away: '', winner: `unresolved: ${u.reason}` }));
 
-    const rankings = computeFullBCSRankings(buf, recordsStart, recordSize, recordCount, confChampions, { ...(options || {}), teamConference: TEAM_CONFERENCE });
+    const rankings = computeFullBCSRankings(buf, recordsStart, recordSize, recordCount, confChampions, seasonGameTable, { ...(options || {}), teamConference: TEAM_CONFERENCE });
     return { success: true, rankings, unmatchedConfGames };
   } catch (err) {
     return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('get-customizable-bowls', async (event, { bracketSize }) => {
+  try {
+    const { REGULAR_BOWLS } = await import('./playoffEditorCore.mjs');
+    const CHAMPIONSHIP = 401;
+    // Exactly what each bracket size occupies natively, per the
+    // confirmed BRACKET_SLOT_MAPS layout already used for writing:
+    //   2:  Championship only
+    //   4:  Semifinals (932,933) + Championship
+    //   8:  Quarterfinals/NY6 (928-931) + Championship
+    //   12: native Round1 (924-927) + Quarterfinals (928-931) + Semis (932,933) + Championship
+    //   16: same as 12, PLUS the 4 repurposed bowls borrowed as extra Round 1 slots
+    const RESERVED_BY_SIZE = {
+      2: [CHAMPIONSHIP],
+      4: [932, 933, CHAMPIONSHIP],
+      8: [928, 929, 930, 931, CHAMPIONSHIP],
+      12: [924, 925, 926, 927, 928, 929, 930, 931, 932, 933, CHAMPIONSHIP],
+      16: [924, 925, 926, 927, 928, 929, 930, 931, 932, 933, CHAMPIONSHIP, 371, 370, 380, 375],
+    };
+    const reserved = new Set(RESERVED_BY_SIZE[bracketSize] || []);
+    const customizable = REGULAR_BOWLS.filter(b => !reserved.has(b.record));
+    return { success: true, bowls: customizable };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('apply-standalone-rankings', async (event, { inputPath, outputPath, options }) => {
+  const log = [];
+  try {
+    const { openSave, findConferenceChampionsByStandings, resolveTable, TABLE_UNIQUE_IDS: TUI } = await import('./playoffEditorCore.mjs');
+    const { computeFullBCSRankings } = await import('./bcsRankingFull.mjs');
+    const { loadTeamConference } = await import('./teamConference.mjs');
+    const { teamRow, rowToName } = await import('./teamLookup.mjs');
+    const { TEAM_CONFERENCE } = loadTeamConference();
+    const Franchise = (await import('madden-franchise')).default;
+
+    const safeOutputPath = backupToPlayoffFolder(inputPath, log);
+    if (!safeOutputPath) return { success: false, log, error: 'Backup failed - aborting.' };
+    const resolvedOutputPath = outputPath || safeOutputPath;
+
+    // Same computation path as compute-bcs-rankings (used for the
+    // preview table) - this just also writes the result, standalone,
+    // with no bracket involved at all. Ranks 1-25 come straight from
+    // the ranking engine's own order, no seed carve-out.
+    const { unpackedFileContents, recordsStart, recordSize, recordCount } =
+      await openSave(inputPath, path.join(__dirname, 'schemas'));
+    const buf = Buffer.from(unpackedFileContents);
+
+    // Same SeasonWeekType-based requirement as compute-bcs-rankings -
+    // see that handler's comment for why this can't come from buf alone.
+    const franchiseForWeekType = await Franchise.create(inputPath, {
+      schemaDirectory: path.join(__dirname, 'schemas'),
+      schemaOverride: { major: 486, minor: 1, gameYear: 27, path: path.join(__dirname, 'schemas', '486_1.gz') },
+    });
+    const seasonGameTable = resolveTable(franchiseForWeekType, TUI.SeasonGame, 'SeasonGame');
+    await seasonGameTable.readRecords();
+
+    const { confChampions: champResults, unresolved } = await findConferenceChampionsByStandings(
+      buf, recordsStart, recordSize, recordCount, TEAM_CONFERENCE, inputPath, path.join(__dirname, 'schemas')
+    );
+    const confChampions = {};
+    for (const [conf, info] of Object.entries(champResults)) confChampions[conf] = info.winner;
+
+    const rankings = computeFullBCSRankings(buf, recordsStart, recordSize, recordCount, confChampions, seasonGameTable, { ...(options || {}), teamConference: TEAM_CONFERENCE });
+    const rankingOrder = rankings.map(r => r.name);
+    log.push(`Computed rankings for ${rankingOrder.length} teams.`);
+    if (unresolved.length) log.push(`Note: ${unresolved.length} conference championship game(s) could not be resolved - see the preview table before trusting this fully.`);
+
+    // inputPath and outputPath may be the same file (overwriting in
+    // place) or different (writing a fresh copy) - same convention as
+    // every other Apply action in this tool.
+    if (inputPath !== resolvedOutputPath) await fsPromises.copyFile(inputPath, resolvedOutputPath);
+
+    const franchise = await Franchise.create(resolvedOutputPath, {
+      schemaDirectory: path.join(__dirname, 'schemas'),
+      autoParse: true,
+      schemaOverride: { major: 486, minor: 1, gameYear: 27, path: path.join(__dirname, 'schemas', '486_1.gz') },
+    });
+    const teamTable = resolveTable(franchise, TUI.Team, 'Team');
+    await teamTable.readRecords();
+    await syncPollRanks(teamTable, [], rankingOrder, teamRow, rowToName, log);
+    await franchise.save();
+    log.push(`Saved to ${resolvedOutputPath}.`);
+
+    return { success: true, log, rankings };
+  } catch (err) {
+    log.push(`ERROR: ${err.message}`);
+    return { success: false, log, error: err.message };
   }
 });
 
@@ -504,18 +1272,14 @@ function getAllowedRecordsForThisRun(config, slotMap, REGULAR_BOWLS) {
   return allowed;
 }
 
-async function snapshotSeasonGameStatus(inputPath, schemaDirectory) {
-  const Franchise = (await import('madden-franchise')).default;
-  const { resolveTable, TABLE_UNIQUE_IDS: TUI } = await import('./playoffEditorCore.mjs');
-  const fr = await Franchise.create(inputPath, {
-    schemaDirectory,
-    schemaOverride: { major: 472, minor: 0, gameYear: 27, path: path.join(schemaDirectory, '472_0.gz') },
-  });
-  const t = resolveTable(fr, TUI.SeasonGame, 'SeasonGame');
-  await t.readRecords();
+// Takes an already-open, already-readRecords'd SeasonGame table (from
+// openSaveWithTeamTable, which run-edit already calls anyway) and
+// snapshots the 3 status fields we care about. Eliminates the original
+// Franchise.create call here - saves one full save parse per Apply.
+function snapshotSeasonGameStatusFromTable(seasonGameTable) {
   const snapshot = [];
-  for (let i = 0; i < t.records.length; i++) {
-    const rec = t.records[i];
+  for (let i = 0; i < seasonGameTable.records.length; i++) {
+    const rec = seasonGameTable.records[i];
     if (!rec) { snapshot.push(null); continue; }
     let status, isSimmed, published;
     try { status = rec['GameStatus']; } catch { status = undefined; }
@@ -526,6 +1290,19 @@ async function snapshotSeasonGameStatus(inputPath, schemaDirectory) {
   return snapshot;
 }
 
+async function snapshotSeasonGameStatus(inputPath, schemaDirectory) {
+  const Franchise = (await import('madden-franchise')).default;
+  const { resolveTable, TABLE_UNIQUE_IDS: TUI } = await import('./playoffEditorCore.mjs');
+  const fr = await Franchise.create(inputPath, {
+    schemaDirectory,
+    schemaOverride: { major: 486, minor: 1, gameYear: 27, path: path.join(schemaDirectory, '486_1.gz') },
+  });
+  const t = resolveTable(fr, TUI.SeasonGame, 'SeasonGame');
+  await t.readRecords();
+  return snapshotSeasonGameStatusFromTable(t);
+}
+
+
 // Compares a pre-write snapshot (captured in memory BEFORE any writes -
 // see snapshotSeasonGameStatus, called at the top of run-edit) against
 // the freshly-written output file. CONFIRMED BUG in the first version of
@@ -535,25 +1312,17 @@ async function snapshotSeasonGameStatus(inputPath, schemaDirectory) {
 // comparing the after-state against itself and could never catch
 // anything. Capturing the snapshot in memory up front fixes this
 // regardless of whether input and output end up being the same path.
-async function verifyNoCollateralStatusChanges(beforeSnapshot, outputPath, schemaDirectory, allowedRecords) {
-  const Franchise = (await import('madden-franchise')).default;
-  const { resolveTable, TABLE_UNIQUE_IDS: TUI } = await import('./playoffEditorCore.mjs');
-
-  const fr = await Franchise.create(outputPath, {
-    schemaDirectory,
-    schemaOverride: { major: 472, minor: 0, gameYear: 27, path: path.join(schemaDirectory, '472_0.gz') },
-  });
-  const afterTable = resolveTable(fr, TUI.SeasonGame, 'SeasonGame');
-  await afterTable.readRecords();
-
+// Verifies using an already-open SeasonGame table (from the rank-sync
+// franchise2 that's already open at this point in run-edit), eliminating
+// the original Franchise.create call here.
+function verifyNoCollateralStatusChangesFromTable(beforeSnapshot, seasonGameTable, allowedRecords) {
   const violations = [];
-  const count = Math.min(beforeSnapshot.length, afterTable.records.length);
+  const count = Math.min(beforeSnapshot.length, seasonGameTable.records.length);
   for (let i = 0; i < count; i++) {
     if (allowedRecords.has(i)) continue;
     const before = beforeSnapshot[i];
-    const after = afterTable.records[i];
+    const after = seasonGameTable.records[i];
     if (!before || !after) continue;
-
     for (const field of ['status', 'isSimmed', 'published']) {
       const schemaField = field === 'status' ? 'GameStatus' : field === 'isSimmed' ? 'IsSimmed' : 'HasBeenPublished';
       let aVal;
@@ -565,6 +1334,19 @@ async function verifyNoCollateralStatusChanges(beforeSnapshot, outputPath, schem
   }
   return violations;
 }
+
+async function verifyNoCollateralStatusChanges(beforeSnapshot, outputPath, schemaDirectory, allowedRecords) {
+  const Franchise = (await import('madden-franchise')).default;
+  const { resolveTable, TABLE_UNIQUE_IDS: TUI } = await import('./playoffEditorCore.mjs');
+  const fr = await Franchise.create(outputPath, {
+    schemaDirectory,
+    schemaOverride: { major: 486, minor: 1, gameYear: 27, path: path.join(schemaDirectory, '486_1.gz') },
+  });
+  const afterTable = resolveTable(fr, TUI.SeasonGame, 'SeasonGame');
+  await afterTable.readRecords();
+  return verifyNoCollateralStatusChangesFromTable(beforeSnapshot, afterTable, allowedRecords);
+}
+
 
 ipcMain.handle('detect-conferences-from-schedule', async (event, { inputPath, attempts }) => {
   let exactMethodError = null;
@@ -583,10 +1365,10 @@ ipcMain.handle('detect-conferences-from-schedule', async (event, { inputPath, at
       schemaDirectory: path.join(__dirname, 'schemas'),
       autoParse: true,
       schemaOverride: {
-        major: 472,
-        minor: 0,
+        major: 486,
+        minor: 1,
         gameYear: 27,
-        path: path.join(__dirname, 'schemas', '472_0.gz'),
+        path: path.join(__dirname, 'schemas', '486_1.gz'),
       },
     });
     const { conferences, debug } = await getConferenceMemberships(franchise);
@@ -712,14 +1494,14 @@ ipcMain.handle('get-bracket-history', async () => {
   }
 });
 
-ipcMain.handle('save-bracket-to-history', async (event, { year, bracketSize, rounds, champion }) => {
+ipcMain.handle('save-bracket-to-history', async (event, { year, bracketSize, rounds, champion, championCoach }) => {
   try {
     if (!year || !Number.isInteger(year)) {
       return { success: false, error: 'A valid year is required.' };
     }
     const entries = readBracketHistoryFile();
     const existingIndex = entries.findIndex(e => e.year === year);
-    const entry = { year, bracketSize, rounds, champion, savedAt: new Date().toISOString() };
+    const entry = { year, bracketSize, rounds, champion, championCoach: championCoach || null, savedAt: new Date().toISOString() };
     const overwrote = existingIndex !== -1;
     if (overwrote) entries[existingIndex] = entry;
     else entries.push(entry);
@@ -741,7 +1523,7 @@ ipcMain.handle('check-conference-mismatch', async (event, { inputPath }) => {
     const franchise = await Franchise.create(inputPath, {
       schemaDirectory: path.join(__dirname, 'schemas'),
       autoParse: true,
-      schemaOverride: { major: 472, minor: 0, gameYear: 27, path: path.join(__dirname, 'schemas', '472_0.gz') },
+      schemaOverride: { major: 486, minor: 1, gameYear: 27, path: path.join(__dirname, 'schemas', '486_1.gz') },
     });
     const { conferences } = await getConferenceMemberships(franchise);
 
@@ -791,7 +1573,7 @@ ipcMain.handle('check-conference-mismatch', async (event, { inputPath }) => {
 ipcMain.handle('get-bracket-state', async (event, { inputPath, bracketSize }) => {
   try {
     const { openSave, readMatchup, readRecordBits, WINNER_BIT, REGULAR_BOWLS, TEAM_TABLE_ID, resolveTable, TABLE_UNIQUE_IDS: TUI } = await import('./playoffEditorCore.mjs');
-    const { rowToName } = await import('./teamLookup.mjs');
+    const { rowToName, teamRow } = await import('./teamLookup.mjs');
     const Franchise = (await import('madden-franchise')).default;
 
     const { unpackedFileContents, recordsStart, recordSize } =
@@ -800,7 +1582,7 @@ ipcMain.handle('get-bracket-state', async (event, { inputPath, bracketSize }) =>
 
     const fr = await Franchise.create(inputPath, {
       schemaDirectory: path.join(__dirname, 'schemas'),
-      schemaOverride: { major: 472, minor: 0, gameYear: 27, path: path.join(__dirname, 'schemas', '472_0.gz') },
+      schemaOverride: { major: 486, minor: 1, gameYear: 27, path: path.join(__dirname, 'schemas', '486_1.gz') },
     });
     const seasonTable = resolveTable(fr, TUI.SeasonGame, 'SeasonGame');
     await seasonTable.readRecords();
@@ -984,6 +1766,51 @@ ipcMain.handle('get-bracket-state', async (event, { inputPath, bracketSize }) =>
     const champGame = readGameRaw(401);
     const champion = championshipFeederComplete ? champGame.winner : null;
 
+    // Coach.TeamIndex is a plain int (confirmed via schema - not a
+    // reference type like Stadium/BowlGame, so no raw-byte workaround
+    // needed here). CONFIRMED via real save testing: TeamIndex is NOT
+    // row position - it's a separate numbering system entirely (e.g.
+    // North Texas: row=82, but TeamIndex=62). Must compare against the
+    // champion team's own TeamIndex field, not its row number.
+    let championCoach = null;
+    if (champion) {
+      const championRow = teamRow(champion);
+      if (championRow !== null && championRow !== undefined) {
+        const teamTableForCoach = resolveTable(fr, TUI.Team, 'Team');
+        await teamTableForCoach.readRecords();
+        const championTeamRec = teamTableForCoach.records[championRow];
+        let championTeamIndex;
+        try { championTeamIndex = championTeamRec['TeamIndex']; } catch { championTeamIndex = undefined; }
+        // TeamIndex may be an integer on one table and a string on another
+        // depending on schema field type. Convert both to string for comparison.
+        const championTeamIndexStr = championTeamIndex !== undefined ? String(championTeamIndex) : undefined;
+
+        if (championTeamIndexStr !== undefined) {
+          const coachTable = resolveTable(fr, TUI.Coach, 'Coach');
+          await coachTable.readRecords();
+          for (let i = 0; i < coachTable.records.length; i++) {
+            const rec = coachTable.records[i];
+            if (!rec) continue;
+            let teamIndex, position;
+            try { teamIndex = rec['TeamIndex']; } catch { continue; }
+            if (String(teamIndex) !== championTeamIndexStr) continue;
+            // CONFIRMED via real save testing: the Coach table holds an
+            // entire staff per team (OC, DC, etc.), not just the head
+            // coach - all sharing the same TeamIndex. Must filter for
+            // Position === 'HeadCoach' specifically, or this grabs
+            // whichever staff member happens to be first in the table.
+            try { position = rec['Position']; } catch { continue; }
+            if (position !== 'HeadCoach') continue;
+            let first = '', last = '';
+            try { first = rec['FirstName'] || ''; } catch { /* ignore */ }
+            try { last = rec['LastName'] || ''; } catch { /* ignore */ }
+            championCoach = `${first} ${last}`.trim() || null;
+            break;
+          }
+        }
+      }
+    }
+
     // Real in-game season year, confirmed directly against a live save:
     // SeasonYear=4 with the in-game year showing 2030 (2026 + 4). Scans
     // a few records rather than trusting just one, since a single blank
@@ -1003,7 +1830,7 @@ ipcMain.handle('get-bracket-state', async (event, { inputPath, bracketSize }) =>
       } catch { /* try the next record */ }
     }
 
-    return { success: true, rounds, champion, seasonYear: realSeasonYear };
+    return { success: true, rounds, champion, championCoach, seasonYear: realSeasonYear };
   } catch (err) {
     return { success: false, error: err.message };
   }
@@ -1146,7 +1973,7 @@ ipcMain.handle('check-cfp-conversion-state', async (event, { inputPath }) => {
     const schemaDirectory = path.join(__dirname, 'schemas');
     const franchise = await Franchise.create(inputPath, {
       schemaDirectory,
-      schemaOverride: { major: 472, minor: 0, gameYear: 27, path: path.join(schemaDirectory, '472_0.gz') },
+      schemaOverride: { major: 486, minor: 1, gameYear: 27, path: path.join(schemaDirectory, '486_1.gz') },
     });
     const matches = franchise.tables.filter(t => t.header.uniqueId === BOWL_GAME_UNIQUE_ID);
     const bowlTable = matches.reduce((a, r) => (r.header.recordCapacity > a.header.recordCapacity ? r : a));
@@ -1165,13 +1992,19 @@ ipcMain.handle('run-edit', async (event, { inputPath, outputPath, config }) => {
     const { openSave, openSaveWithTeamTable, readMatchup, writeMatchup, repackSave, REGULAR_BOWLS, readRegularBowlMatchups, TEAM_TABLE_ID } = await import('./playoffEditorCore.mjs');
     const { teamRow, rowToName, lookup } = await import('./teamLookup.mjs');
 
-    const originalRawBuf = fs.readFileSync(inputPath);
+    // Back up the original save to <savesDir>/Playoff/ before any
+    // writes happen, so the user always has a copy to fall back to.
+    const safeOutputPath = backupToPlayoffFolder(inputPath, log);
+    if (!safeOutputPath) return { success: false, log };
+    const resolvedOutputPath = outputPath || safeOutputPath;
+
+    const originalRawBuf = await fsPromises.readFile(inputPath);
     log.push(`Loaded ${inputPath} (${originalRawBuf.length} bytes)`);
 
     // Captured BEFORE any write happens, in memory - so this stays valid
     // even when inputPath and outputPath are the same file (completely
     // normal - overwriting your own save in place). See
-    // verifyNoCollateralStatusChanges below for why this matters.
+    // verifyNoCollateralStatusChangesFromTable below for why this matters.
     const beforeStatusSnapshot = await snapshotSeasonGameStatus(inputPath, path.join(__dirname, 'schemas'));
 
     const { unpackedFileContents, season } = await openSaveWithTeamTable(inputPath, path.join(__dirname, 'schemas'));
@@ -1283,6 +2116,9 @@ ipcMain.handle('run-edit', async (event, { inputPath, outputPath, config }) => {
 
     const writeGame = (recordIndex, game, label) => {
       if (!game || (!game.home && !game.away)) return;
+      if (typeof recordIndex !== 'number' || !Number.isInteger(recordIndex) || recordIndex < 0 || recordIndex >= recordCount) {
+        throw new Error(`${label}: target record is invalid (got ${JSON.stringify(recordIndex)}) - this is a bug in how this game's target slot was resolved, not a problem with your picks.`);
+      }
       const before = readMatchup(buf, recordsStart, recordSize, recordIndex);
       const beforeHomeValid = before.home.tableId === TEAM_TABLE_ID;
       const beforeAwayValid = before.away.tableId === TEAM_TABLE_ID;
@@ -1356,9 +2192,33 @@ ipcMain.handle('run-edit', async (event, { inputPath, outputPath, config }) => {
       });
     }
 
+    // User-customized non-playoff bowl matchups - same writeGame
+    // mechanism as every bracket game above, so it inherits the exact
+    // same swap convention, logging, and "already decided" safety
+    // check. Written last, after dummy-swap has already run, so a
+    // custom pick here is never immediately swapped back out. Both
+    // home and away are required (no "auto-fill from previous round"
+    // concept applies to a bowl outside the bracket).
+    (config.customBowlMatchups || []).forEach(({ record, name, home, away }) => {
+      if (!home || !away) return;
+      writeGame(record, { home, away }, `Custom bowl (${name})`);
+    });
+
+    // NY6 leftover slot team assignments - writeGame handles these the
+    // same way as custom bowl matchups. Bowl-identity/branding changes
+    // were investigated extensively but found to be inseparable from
+    // CFP presentation elements (broadcast overlay, uniform patch, field
+    // markings) - no clean path exists to set real bowl branding without
+    // also triggering those overlays on these specific native slots.
+    // Teams only; presentation stays native.
+    (config.ny6BowlAssignments || []).forEach(({ record, home, away }) => {
+      if (!home || !away) return;
+      writeGame(record, { home, away }, `NY6 leftover slot ${record}`);
+    });
+
     const finalBuf = repackSave(originalRawBuf, buf);
-    fs.writeFileSync(outputPath, finalBuf);
-    log.push(`Wrote ${outputPath} (${finalBuf.length} bytes). Done!`);
+    await fsPromises.writeFile(resolvedOutputPath, finalBuf);
+    log.push(`Wrote ${resolvedOutputPath} (${finalBuf.length} bytes). Done!`);
 
     // Safety check, not a fix: confirmed real bug where repackSave can
     // occasionally produce a file that findZlibStart later misreads on
@@ -1368,7 +2228,7 @@ ipcMain.handle('run-edit', async (event, { inputPath, outputPath, config }) => {
     // file. Immediately try to re-open what we just wrote, before doing
     // anything else with it.
     try {
-      await openSave(outputPath, path.join(__dirname, 'schemas'));
+      await openSave(resolvedOutputPath, path.join(__dirname, 'schemas'));
     } catch (verifyErr) {
       log.push(`*** VERIFICATION FAILED - the file we just wrote could not be re-opened (${verifyErr.message}). ***`);
       log.push('*** DO NOT use this output file. This is a known, unresolved bug in the save-writing step itself - see the Discord. ***');
@@ -1402,61 +2262,15 @@ ipcMain.handle('run-edit', async (event, { inputPath, outputPath, config }) => {
     if (writtenRecords.length && !isSecondPassOf16) {
       try {
         const Franchise = (await import('madden-franchise')).default;
-        const franchise2 = await Franchise.create(outputPath, {
+        const franchise2 = await Franchise.create(resolvedOutputPath, {
           schemaDirectory: path.join(__dirname, 'schemas'),
           autoParse: true,
-          schemaOverride: { major: 472, minor: 0, gameYear: 27, path: path.join(__dirname, 'schemas', '472_0.gz') },
+          schemaOverride: { major: 486, minor: 1, gameYear: 27, path: path.join(__dirname, 'schemas', '486_1.gz') },
         });
         const { resolveTable, TABLE_UNIQUE_IDS: TUI } = await import('./playoffEditorCore.mjs');
         const seasonTable2 = resolveTable(franchise2, TUI.SeasonGame, 'SeasonGame');
         await seasonTable2.readRecords();
 
-        // CONFIRMED BUG, removed: this used to force GameStatus/IsSimmed/
-        // HasBeenPublished back to an unplayed state on every record we
-        // write into. Testing proved this is what breaks live-play result
-        // commitment - a game reset this way gets stuck showing as
-        // "still needs to be played" even after being fully played to
-        // completion, regardless of anything else touched in the same
-        // pass (isolated via testing: team-only writes work and hold up
-        // through both simming and live play; status-only writes break
-        // it on their own, with zero team change involved). See
-        // SESSION_FINDINGS.md.
-        //
-        // We no longer touch these fields at all. A record's leftover
-        // native GameStatus/score is inherited from whatever it last
-        // held - if the game gets auto-simmed, that leftover carries
-        // through (cosmetic only); if the user plays it live, their
-        // played result correctly overrides it, same as any other game
-        // in the game that was never touched by this tool.
-
-        // Request ID regeneration removed - it was built for the
-        // wrong-opponent display bug, which testing later proved is a
-        // pure EA-side in-memory cache with zero footprint in the save
-        // file at all. No amount of save editing could ever have fixed
-        // it, so this never showed a confirmed benefit. Removed for
-        // simplicity now that the tool only does team swap + rank sync.
-
-        // --- Poll-rank sync (CFP/Coaches/Media + TeamRank) ---
-        // Makes the in-game Top 25 display match the tool's own seeding
-        // instead of the game's separately-simulated committee order.
-        // Confirmed working via test-sync-poll-ranks-v2.mjs (survives
-        // repack + a full sim week, no snap-back observed).
-        //
-        // CONFIRMED BUG (16-team test, real bracket): originally built
-        // seed numbers by filtering config.rankingOrder down to
-        // config.playoffTeams and numbering sequentially. That silently
-        // breaks whenever an autobid team's assigned seed differs from
-        // its position in rankingOrder (autoFillEmptySeeds in index.html
-        // pulls autobid teams OUT of the ranking pool before filling
-        // At-Large seeds, so their bracket seed and their rank position
-        // are two different things by design). UNLV and Virginia were
-        // seeded 5 and 6 but ranked ~10th and ~15th - every team ranked
-        // between those positions drifted by however many autobid slots
-        // sat above it. Fixed by using config.seedAssignments instead:
-        // the renderer now sends the actual seed_i dropdown values
-        // directly, which is the literal source of truth the "Round 1
-        // Matchups" panel itself is built from - no reconstruction, no
-        // room for the two data sources to disagree.
         if (config.seedAssignments && config.seedAssignments.length) {
           const seedAssignments = config.seedAssignments
             .filter(a => a && a.team)
@@ -1465,73 +2279,7 @@ ipcMain.handle('run-edit', async (event, { inputPath, outputPath, config }) => {
           if (seedAssignments.length) {
             const teamTable2 = resolveTable(franchise2, TUI.Team, 'Team');
             await teamTable2.readRecords();
-            const POLLS = ['CFPPoll', 'CoachesPoll', 'MediaPoll'];
-            const rankedRows = new Set();
-
-            for (const { row, seed: s } of seedAssignments) {
-              const rec = teamTable2.records[row];
-              if (!rec) { log.push(`Rank sync - row ${row}: no record found, skipped.`); continue; }
-              const before = rec['CFPPoll_CurrentRank'];
-              for (const poll of POLLS) {
-                rec[`${poll}_LastWeeksRank`] = rec[`${poll}_CurrentRank`];
-                rec[`${poll}_CurrentRank`] = s;
-              }
-              rec['TeamRank'] = s;
-              rankedRows.add(row);
-              log.push(`Rank sync - ${rowToName(row)}: rank -> ${s} (was ${before}).`);
-            }
-
-            // Fill ranks past the bracket cutoff (17-25 for a 16-team
-            // bracket, generalizing to "up to 25 total" for any size)
-            // with the next-best teams by our own ranking engine, then
-            // EXPLICITLY zero out (NR - confirmed via the schema that 0
-            // is the real "not ranked" sentinel, same as every actual
-            // AP/CFP-style poll) every other team in the Team table.
-            // This is the actual fix for the duplicate-rank-number bug
-            // (e.g. two teams both showing "15") - the old code above
-            // only ever touched bracket teams and left everyone else's
-            // stale native rank in place, which is exactly what collided
-            // with our forced numbers. Explicitly touching every team,
-            // not just the ones we care about, is what actually
-            // eliminates that.
-            if (config.rankingOrder && config.rankingOrder.length) {
-              let nextRank = seedAssignments.length + 1;
-              for (const teamName of config.rankingOrder) {
-                if (nextRank > 25) break;
-                const row = teamRow(teamName);
-                if (row === null || row === undefined || rankedRows.has(row)) continue;
-                const rec = teamTable2.records[row];
-                if (!rec) continue;
-                for (const poll of POLLS) {
-                  rec[`${poll}_LastWeeksRank`] = rec[`${poll}_CurrentRank`];
-                  rec[`${poll}_CurrentRank`] = nextRank;
-                }
-                rec['TeamRank'] = nextRank;
-                rankedRows.add(row);
-                log.push(`Rank sync - ${teamName}: rank -> ${nextRank} (next-best outside the bracket).`);
-                nextRank++;
-              }
-            }
-
-            let clearedCount = 0;
-            const UNRANKED_SENTINEL = 255; // confirmed via real in-game screenshot: 0 sorts to the TOP (treated as "best"), not bottom - it's just the schema's default/uninitialized value, not a real NR signal. 255 (the field's actual max) sorts last instead.
-            for (let row = 0; row < teamTable2.records.length; row++) {
-              if (rankedRows.has(row)) continue;
-              let name;
-              try { name = rowToName(row); } catch { continue; }
-              if (!name) continue; // not a real team row
-              const rec = teamTable2.records[row];
-              let alreadySentinel = true;
-              try { alreadySentinel = rec['CFPPoll_CurrentRank'] === UNRANKED_SENTINEL && rec['TeamRank'] === UNRANKED_SENTINEL; } catch { alreadySentinel = false; }
-              if (alreadySentinel) continue;
-              for (const poll of POLLS) {
-                rec[`${poll}_LastWeeksRank`] = rec[`${poll}_CurrentRank`];
-                rec[`${poll}_CurrentRank`] = UNRANKED_SENTINEL;
-              }
-              rec['TeamRank'] = UNRANKED_SENTINEL;
-              clearedCount++;
-            }
-            if (clearedCount > 0) log.push(`Rank sync - pushed ${clearedCount} other team(s) to the bottom (unranked), eliminating stale native ranks that could collide with the numbers above.`);
+            await syncPollRanks(teamTable2, seedAssignments, config.rankingOrder, teamRow, rowToName, log);
           } else {
             log.push('Rank sync - seedAssignments was present but empty after filtering, skipped.');
           }
@@ -1541,35 +2289,46 @@ ipcMain.handle('run-edit', async (event, { inputPath, outputPath, config }) => {
 
         await franchise2.save();
         log.push('Rank sync saved.');
+
+        // Verification reuses seasonTable2 from franchise2 (already open
+        // and read above) - no extra Franchise.create needed here.
+        try {
+          const allowedRecords = getAllowedRecordsForThisRun(config, slotMap, REGULAR_BOWLS);
+          const violations = verifyNoCollateralStatusChangesFromTable(beforeStatusSnapshot, seasonTable2, allowedRecords);
+          if (violations.length) {
+            log.push('');
+            log.push('*** VERIFICATION FAILED - collateral damage detected outside this run\'s allowed records: ***');
+            violations.forEach(v => log.push('  ' + v));
+            log.push('*** DO NOT use this output file. Something touched records this bracket size should never have written to. ***');
+            return { success: false, log };
+          }
+          log.push(`Verified: no changes outside this run's allowed records (${[...allowedRecords].sort((a, b) => a - b).join(', ')}).`);
+        } catch (verifyErr) {
+          log.push(`WARNING - could not run the collateral-damage verification check: ${verifyErr.message}. The output file was written but hasn't been double-checked for out-of-scope changes.`);
+        }
+
       } catch (err) {
         log.push(`WARNING - rank sync failed, but the bracket itself was already written successfully: ${err.message}`);
       }
     }
 
-    // --- Verify no collateral damage outside this run's own rules ---
-    // Originally added after a CONFIRMED BUG where an 8-team run (should
-    // only ever touch 928-931) reverted already-played Week 17 results
-    // (924-927) back to unplayed - traced to the GameStatus-reset pass
-    // that used to run here (now removed entirely, see above). Kept as
-    // a general safety net even without that pass: still re-opens the
-    // original input and the final output and directly compares every
-    // record's play-status fields. Anything outside this run's allowed set
-    // that changed anyway is
-    // flagged as a hard failure - this is the "each bracket bound to its
-    // own rules" enforcement, checked after the fact instead of assumed.
-    try {
-      const allowedRecords = getAllowedRecordsForThisRun(config, slotMap, REGULAR_BOWLS);
-      const violations = await verifyNoCollateralStatusChanges(beforeStatusSnapshot, outputPath, path.join(__dirname, 'schemas'), allowedRecords);
-      if (violations.length) {
-        log.push('');
-        log.push('*** VERIFICATION FAILED - collateral damage detected outside this run\'s allowed records: ***');
-        violations.forEach(v => log.push('  ' + v));
-        log.push('*** DO NOT use this output file. Something touched records this bracket size should never have written to. ***');
-        return { success: false, log };
+    // Verification fallback when rank sync was skipped (no writtenRecords)
+    // - only needed if we didn't go through the franchise2 path above.
+    if (!writtenRecords.length) {
+      try {
+        const allowedRecords = getAllowedRecordsForThisRun(config, slotMap, REGULAR_BOWLS);
+        const violations = await verifyNoCollateralStatusChanges(beforeStatusSnapshot, resolvedOutputPath, path.join(__dirname, 'schemas'), allowedRecords);
+        if (violations.length) {
+          log.push('');
+          log.push('*** VERIFICATION FAILED - collateral damage detected outside this run\'s allowed records: ***');
+          violations.forEach(v => log.push('  ' + v));
+          log.push('*** DO NOT use this output file. Something touched records this bracket size should never have written to. ***');
+          return { success: false, log };
+        }
+        log.push(`Verified: no changes outside this run's allowed records (${[...allowedRecords].sort((a, b) => a - b).join(', ')}).`);
+      } catch (err) {
+        log.push(`WARNING - could not run the collateral-damage verification check: ${err.message}. The output file was written but hasn't been double-checked for out-of-scope changes.`);
       }
-      log.push(`Verified: no changes outside this run's allowed records (${[...allowedRecords].sort((a, b) => a - b).join(', ')}).`);
-    } catch (err) {
-      log.push(`WARNING - could not run the collateral-damage verification check: ${err.message}. The output file was written but hasn't been double-checked for out-of-scope changes.`);
     }
 
     // --- CFP First Round presentation convert/revert ---
@@ -1583,7 +2342,7 @@ ipcMain.handle('run-edit', async (event, { inputPath, outputPath, config }) => {
       log.push('');
       log.push('Converting the 4 repurposed bowls to CFP First Round presentation:');
       try {
-        await applyCfpConversion(outputPath, path.join(__dirname, 'schemas'), log);
+        await applyCfpConversion(resolvedOutputPath, path.join(__dirname, 'schemas'), log);
       } catch (err) {
         log.push(`  WARNING - CFP presentation conversion failed: ${err.message}. The bracket itself was still written correctly - this only affects the extra presentation polish.`);
       }
@@ -1591,20 +2350,38 @@ ipcMain.handle('run-edit', async (event, { inputPath, outputPath, config }) => {
       log.push('');
       log.push('Reverting the 4 repurposed bowls back to their original presentation:');
       try {
-        await revertCfpConversion(outputPath, path.join(__dirname, 'schemas'), log);
+        await revertCfpConversion(resolvedOutputPath, path.join(__dirname, 'schemas'), log);
       } catch (err) {
         log.push(`  WARNING - CFP presentation revert failed: ${err.message}.`);
       }
     }
 
-    // Always runs, every Apply, every bracket size - independent of
-    // the above. Fixes the persistent unrelated mislabeling issue on
-    // 13 other bowl games (not the 4 repurposed ones, which are
-    // handled above according to bracket size/user choice).
+    // Championship location override - independent of bracket size and
+    // of who actually ends up playing there, since it's just a stadium
+    // choice on a fixed record (401). Runs whenever the renderer sends
+    // a choice, regardless of which bracket size is being built.
+    if (config.championshipStadiumTeam) {
+      log.push('');
+      log.push('Setting the Championship location:');
+      try {
+        await applyChampionshipStadiumOverride(resolvedOutputPath, path.join(__dirname, 'schemas'), config.championshipStadiumTeam, log);
+      } catch (err) {
+        log.push(`  WARNING - Championship location override failed: ${err.message}.`);
+      }
+    }
+
+    // Always runs, every Apply - corrects any player whose season-stat
+    // team reference has drifted from their current roster, treating
+    // roster as ground truth. See correctSeasonStatsToMatchRoster's own
+    // comment for the important caveat: this fixes the symptom every
+    // time, but whether this tool's own write path is the actual root
+    // cause is still an open, untested question.
+    log.push('');
+    log.push('Checking player season-stat team references against current rosters:');
     try {
-      await restoreUnrelatedMislabeledBowls(outputPath, path.join(__dirname, 'schemas'), log);
+      await correctSeasonStatsToMatchRoster(resolvedOutputPath, path.join(__dirname, 'schemas'), log);
     } catch (err) {
-      log.push(`  WARNING - could not check/restore unrelated bowl names: ${err.message}.`);
+      log.push(`  WARNING - season-stat correction failed: ${err.message}. The bracket itself was still written correctly.`);
     }
 
     return { success: true, log };

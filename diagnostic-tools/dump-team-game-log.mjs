@@ -51,7 +51,7 @@ for (let i = 0; i < recordCount; i++) {
     seasonYear = franchiseSeasonTable.records[i]['SeasonYear'];
   } catch { /* leave as <threw> */ }
 
-  const includedInRankings = week !== null && week <= 15;
+  const includedInRankings = week !== null && week <= 16;
   games.push({
     record: i, week, rawWeek, homeName, awayName, seasonYear,
     winner: winnerBit === 0 ? homeName : awayName,
@@ -63,7 +63,7 @@ games.sort((a, b) => (a.week ?? 999) - (b.week ?? 999));
 console.log(`=== Full game log for ${teamName} (${games.length} games found) ===\n`);
 for (const g of games) {
   const result = g.winner === teamName ? 'WIN' : 'LOSS';
-  console.log(`Record ${g.record}: week=${g.week} (raw ${g.rawWeek})  SeasonYear=${g.seasonYear}  ${g.awayName} @ ${g.homeName}  ->  ${result} (winner: ${g.winner})  ${g.includedInRankings ? '' : '<-- EXCLUDED from rankings/standings (week > 15 or null)'}`);
+  console.log(`Record ${g.record}: week=${g.week} (raw ${g.rawWeek})  SeasonYear=${g.seasonYear}  ${g.awayName} @ ${g.homeName}  ->  ${result} (winner: ${g.winner})  ${g.includedInRankings ? '' : '<-- EXCLUDED from rankings/standings (week > 16 or null)'}`);
 }
 
 const includedGames = games.filter(g => g.includedInRankings);

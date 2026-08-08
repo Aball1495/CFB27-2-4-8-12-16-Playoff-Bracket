@@ -25,4 +25,9 @@ contextBridge.exposeInMainWorld('api', {
   getCfpConversionPreference: () => ipcRenderer.invoke('get-cfp-conversion-preference'),
   setCfpConversionPreference: (payload) => ipcRenderer.invoke('set-cfp-conversion-preference', payload),
   checkCfpConversionState: (payload) => ipcRenderer.invoke('check-cfp-conversion-state', payload),
+  applyStandaloneRankings: (payload) => ipcRenderer.invoke('apply-standalone-rankings', payload),
+  getCustomizableBowls: (payload) => ipcRenderer.invoke('get-customizable-bowls', payload),
+  fixSeasonStatsOnly: (payload) => ipcRenderer.invoke('fix-season-stats-only', payload),
+  getPremierStadiums: () => ipcRenderer.invoke('get-premier-stadiums'),
+  getNy6LeftoverSlots: (payload) => ipcRenderer.invoke('get-ny6-leftover-slots', payload),
 });
